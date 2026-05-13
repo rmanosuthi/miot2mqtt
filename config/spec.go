@@ -1,0 +1,163 @@
+package config
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"iter"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+)
+
+type SpecID = uint16
+
+const SpecUrl = "https://miot-spec.org/miot-spec-v2/instance?type="
+const SpecPath = "vendor/spec/"
+
+type Spec struct {
+	Type        Urn           `json:"type"`
+	Description string        `json:"description"`
+	Services    []SpecService `json:"services"`
+}
+
+type SpecService struct {
+	IID         SpecID       `json:"iid"`
+	Type        Urn          `json:"type"`
+	Description string       `json:"description"`
+	Properties  []SpecProp   `json:"properties,omitempty"`
+	Actions     []SpecAction `json:"actions,omitempty"`
+	Events      []SpecEvent  `json:"events,omitempty"`
+}
+
+func (s *SpecService) Name() string {
+	return s.Type.Name.Value()
+}
+
+type SpecProp struct {
+	IID SpecID `json:"iid"`
+	// Urn is renamed from "type" to better reflect what it is.
+	Urn         Urn      `json:"type"`
+	Description string   `json:"description"`
+	Format      string   `json:"format"`
+	Access      []string `json:"access"`
+	// only defined when an integer/floating point
+	ValueRange []json.Number `json:"value-range,omitempty"`
+	// integer only
+	ValueList []SpecPropValue `json:"value-list,omitempty"`
+	Unit      string          `json:"unit,omitempty"`
+	//GattAccess []any           `json:"gatt-access,omitempty"`
+	Source SpecID `json:"source,omitempty"`
+	// string only
+	MaxLength SpecID `json:"max-length"`
+}
+
+func (s *SpecProp) Name() string {
+	return s.Urn.Name.Value()
+}
+
+func VList[T ~uint8 | ~uint16](s *SpecProp) iter.Seq2[T, SpecPropValue] {
+	return func(yield func(T, SpecPropValue) bool) {
+		for _, pv := range s.ValueList {
+			iv, err := pv.Value.Int64()
+			if err != nil {
+				// TODO warn
+				return
+			}
+			conv := T(iv)
+			if !yield(conv, pv) {
+				return
+			}
+		}
+	}
+}
+
+type SpecPropValue struct {
+	Value       json.Number `json:"value"`
+	Description string      `json:"description"`
+}
+
+type SpecAction struct {
+	IID         SpecID   `json:"iid"`
+	Type        Urn      `json:"type"`
+	Description string   `json:"description"`
+	In          []string `json:"in"`
+	Out         []string `json:"out"`
+}
+
+type SpecEvent struct {
+	IID         SpecID        `json:"iid"`
+	Type        Urn           `json:"type"`
+	Description string        `json:"description"`
+	Arguments   []json.Number `json:"arguments"`
+}
+
+type specReq struct {
+	Body      *bytes.Buffer
+	BytesRead int64
+	Error     error
+}
+
+func (spec *Spec) Default(pfx *os.Root, gc *Global, hint *Metaspec) error {
+	if hint.Version == 0 {
+		return fmt.Errorf("version is 0??")
+	}
+	if !gc.General.AllowExternalNetwork {
+		return ErrNoExtNet
+	}
+	slog.Info("downloading device spec", "model", hint.Model, "version", hint.Version)
+	return downloadSpec(context.TODO(), hint.Type, spec)
+}
+
+func (spec *Spec) Suffix(hint *Metaspec) (string, error) {
+	if hint == nil {
+		return "", fmt.Errorf("no metaspec")
+	}
+	var sb strings.Builder
+	sb.WriteString(SpecPath)
+	fmt.Fprintf(&sb, "v%v.", hint.Version)
+	sb.WriteString(hint.Model)
+	sb.WriteString(".json")
+	return sb.String(), nil
+}
+
+func (spec *Spec) MarshalFunc() ([]byte, error) {
+	return json.Marshal(spec)
+}
+
+func (spec *Spec) UnmarshalFunc(src []byte) error {
+	err := json.Unmarshal(src, spec)
+	if err != nil {
+		slog.Debug("failed to unmarshal spec, dumping", "dump", spec)
+	}
+	return err
+}
+
+func downloadSpec(ctx context.Context, urn string, spec *Spec) error {
+	ch := make(chan specReq)
+	url := SpecUrl + urn
+	go func(ctx context.Context) {
+		slog.Debug("downloading device spec", "url", url)
+		resp, err := http.Get(url)
+		if err != nil {
+			ch <- specReq{Body: nil, Error: err}
+			return
+		}
+		defer resp.Body.Close()
+		var buf bytes.Buffer
+		br, err := buf.ReadFrom(resp.Body)
+		if err != nil {
+			ch <- specReq{Body: nil, Error: err}
+			return
+		}
+		ch <- specReq{Body: &buf, BytesRead: br, Error: nil}
+	}(ctx)
+	res := <-ch
+	if res.Error != nil {
+		return res.Error
+	}
+	err := json.Unmarshal(res.Body.Bytes(), spec)
+	return err
+}
