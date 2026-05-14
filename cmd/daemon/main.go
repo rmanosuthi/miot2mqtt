@@ -57,13 +57,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	var ms config.Metaspecs
-	err = config.Populate(&ms, args)
-	if err != nil {
-		slog.Error("failed to populate metaspecs", "reason", err)
-		os.Exit(1)
-	}
-
 	mqttDebugHandler := slog.NewTextHandler(os.Stderr, nil)
 	mqttErrorHandler := slog.NewTextHandler(os.Stderr, nil)
 	mqttDebug := slog.NewLogLogger(mqttDebugHandler, logLevel)
@@ -73,7 +66,12 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
-	devices, err := device.LoadDevices(ctx, pfx, &gc, ms.Instances, false)
+	devArgs := device.LoadArgs{
+		Prefix: pfx,
+		Global: &gc,
+		Strict: false,
+	}
+	devices, err := device.LoadDevices(ctx, devArgs)
 	if err != nil {
 		slog.Error("failed to load devices", "reason", err)
 		os.Exit(1)

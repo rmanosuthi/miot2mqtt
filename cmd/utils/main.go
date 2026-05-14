@@ -6,16 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device"
-	"github.com/rmanosuthi/miot2mqtt/device/prop"
-	"github.com/rmanosuthi/miot2mqtt/ha"
-	"github.com/rmanosuthi/miot2mqtt/wire"
 	"net/netip"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/device"
+	"github.com/rmanosuthi/miot2mqtt/device/prop"
+	"github.com/rmanosuthi/miot2mqtt/ha"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 func main() {
@@ -54,28 +55,35 @@ func main() {
 		os.Exit(1)
 	}
 	gc := new(config.Global)
-	args := config.Args[config.NoHint]{
+	globalArgs := config.Args[config.NoHint]{
 		Prefix: pfx,
 		Global: nil,
 		Hint:   nil,
 	}
-	err = config.Populate(gc, args)
+	err = config.Populate(gc, globalArgs)
 	if err != nil {
 		slog.Error("failed to populate config", "reason", err)
 		os.Exit(1)
 	}
 
 	var ms config.Metaspecs
-	err = config.Populate(&ms, args)
+	err = config.Populate(&ms, globalArgs)
 	if err != nil {
 		slog.Error("failed to populate metaspecs", "reason", err)
 		os.Exit(1)
 	}
-	devices, err := device.LoadDevices(ctx, pfx, gc, ms.Instances, false)
+
+	devArgs := device.LoadArgs{
+		Prefix: pfx,
+		Global: gc,
+		Strict: false,
+	}
+	devices, err := device.LoadDevices(ctx, devArgs)
 	if err != nil {
 		slog.Error("failed to load devices", "reason", err)
 		os.Exit(1)
 	}
+
 	switch mode {
 	case "add":
 		args := strings.Split(msg, ":")
@@ -107,10 +115,14 @@ func main() {
 		}
 
 		var spec config.Spec
-		a := config.Args[config.Metaspec]{
+		a := config.Args[config.SpecHint]{
 			Prefix: pfx,
 			Global: gc,
-			Hint:   meta,
+			Hint: &config.SpecHint{
+				Model:   meta.Model,
+				Version: meta.Version,
+				URN:     &meta.Type,
+			},
 		}
 		err = config.Populate(&spec, a)
 		if err != nil {

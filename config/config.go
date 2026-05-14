@@ -10,6 +10,7 @@ import (
 )
 
 var ErrPopulate = errors.New("failed to populate config")
+var ErrLoad = errors.New("failed to load config")
 var ErrFlush = errors.New("failed to flush config")
 
 type NoHint struct{}
@@ -75,6 +76,39 @@ func Flush[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 		return errors.Join(ErrFlush, err)
 	}
 	l.Info("updated config file")
+	return nil
+}
+
+// Load only loads and parses an on-disk copy of state.
+// It will fail otherwise.
+func Load[T nonVolatile[T, H], H any](state T, args Args[H]) error {
+	relPath, err := T.Suffix(state, args.Hint)
+	if err != nil {
+		return errors.Join(ErrLoad, err)
+	}
+	l := slog.Default().With("path", relPath)
+
+	pfx := args.Prefix
+
+	f, err := pfx.OpenFile(relPath, os.O_RDWR, 0o644)
+	if err != nil {
+		return errors.Join(ErrLoad, err)
+	}
+	defer f.Close()
+
+	rdr := bufio.NewReader(f)
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(rdr)
+	if err != nil {
+		l.Debug("err read file")
+		return errors.Join(ErrLoad, err)
+	}
+	err = T.UnmarshalFunc(state, buf.Bytes())
+	if err != nil {
+		l.Debug("err UnmarshalFunc()")
+		return errors.Join(ErrLoad, err)
+	}
+	l.Info("loaded config file")
 	return nil
 }
 
