@@ -8,43 +8,17 @@
 //
 //	homeassistant/device/{Device.Ident()}/config
 //
-// with the payload being a struct which wraps [DiscovBase].
+// See [discovery] for more info.
 package ha
 
 import (
 	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-type dpd struct {
-	Identifiers []string `json:"ids"`
-	Name        string   `json:"name"`
-}
-
-type o struct {
-	Name string `json:"name"`
-}
-
-type cm struct {
-	Platform    string `json:"p"`
-	DeviceClass string `json:"dev_cla"`
-	UniqueId    string `json:"uniq_id"`
-}
-
-// DiscovBase is a generic struct which devices may wrap to
-// form a discovery payload.
-type DiscovBase[C any] struct {
-	Device     dpd          `json:"dev"`
-	Origin     o            `json:"o"`
-	Components map[string]C `json:"cmps"`
-}
-
-// Base type for Component.
-type CmpBase struct {
-	Platform string `json:"p"`
-	UniqueId string `json:"uniq_id"`
-}
+const BaseTopic = discovery.BaseTopic
 
 func matchClassHint(svc config.SpecService) bool {
 	return svc.IID == 2

@@ -19,6 +19,7 @@ const MQTTClientId = "miot2mqtt"
 
 var ErrMqttConnInit = errors.New("failed to initialize MQTT connection")
 var ErrMqttConnSub = errors.New("failed to subscribe to MQTT topic")
+var ErrHaDevInit = errors.New("failed to initialize Home Assistant device")
 
 type HaConn struct {
 	global *config.Global
@@ -76,7 +77,11 @@ func (conn HaConn) Consume(ctx context.Context, cs HaConsume) error {
 	for _, md := range cs.DeviceMap {
 		dev, err := InitDevice(md)
 		if err != nil {
-			slog.Warn("unsupported device", "reason", err)
+			if errors.Is(err, errors.ErrUnsupported) {
+				slog.Warn("device has no HA integration", "reason", err)
+			} else {
+				slog.Error("failed to initialize Home Assistant device", "reason", err)
+			}
 		} else {
 			disc, err := dev.Discovery()
 			if err != nil {

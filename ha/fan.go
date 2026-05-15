@@ -11,6 +11,7 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/device"
 	"github.com/rmanosuthi/miot2mqtt/device/prop"
+	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -23,8 +24,6 @@ var ErrFanOscOff = errors.New("failed to turn oscillation off")
 var ErrFanSpeed = errors.New("failed to set fan speed")
 var ErrFanInit = errors.New("failed to initialize fan")
 
-const Base = "miot2mqtt"
-
 // A FanDevice is a concrete device which is a fan,
 // implementing all methods from [Device].
 //
@@ -36,7 +35,9 @@ type FanDevice struct {
 	// [NewFanDevice] accepts a [device.MiotDevice] and
 	// stores it in here.
 	device.MiotDevice
+	// Capabilities.
 	FanCaps
+	// Components.
 	components map[string]fancmp
 }
 
@@ -141,13 +142,13 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 
 func (dev *FanDevice) Discovery() ([]byte, error) {
 	discov := fandiscov{
-		DiscovBase: DiscovBase[fancmp]{
-			Device: dpd{
-				Identifiers: []string{fmt.Sprintf("%v", dev.DeviceID)},
+		Base: discovery.Base[fancmp]{
+			Device: discovery.Device{
+				Identifiers: discovery.Ident(dev.DeviceID),
 				Name:        dev.Alias,
 			},
-			Origin: o{
-				Name: Base,
+			Origin: discovery.Origin{
+				Name: BaseTopic,
 			},
 			Components: fancmps(dev.DeviceID, &dev.FanCaps),
 		},
@@ -176,11 +177,11 @@ func NewFanDevice(md device.MiotDevice) (*FanDevice, error) {
 }
 
 type fandiscov struct {
-	DiscovBase[fancmp]
+	discovery.Base[fancmp]
 }
 
 type fancmp struct {
-	CmpBase
+	discovery.BaseCmp
 	CommandTopic            string `json:"command_topic"`
 	StateTopic              string `json:"state_topic"`
 	OscillationStateTopic   string `json:"oscillation_state_topic,omitempty"`
@@ -228,29 +229,26 @@ func GetFanCaps(dev *device.MiotDevice) (FanCaps, error) {
 		}
 		return nil
 	}, dev)
-	caps.BasePath = fmt.Sprintf("%v/%v", Base, dev.DeviceID)
+	caps.BasePath = fmt.Sprintf("%v/%v", BaseTopic, dev.DeviceID)
 
 	return caps, err
 }
 
 func fancmps(did wire.DeviceID, caps *FanCaps) map[string]fancmp {
 	fc := fancmp{
-		CmpBase: CmpBase{
-			Platform: "fan",
-			UniqueId: fmt.Sprintf("%v_fan", did),
-		},
-		CommandTopic: fmt.Sprintf("%v/%v/on/set", Base, did),
-		StateTopic:   fmt.Sprintf("%v/%v/on/state", Base, did),
+		BaseCmp:      discovery.NewBaseCmp(did, "fan"),
+		CommandTopic: discovery.Topic(did, "on/set"),
+		StateTopic:   discovery.Topic(did, "on/state"),
 	}
 
 	if caps.Oscillate != nil {
-		fc.OscillationCommandTopic = fmt.Sprintf("%v/oscillation/set", caps.BasePath)
-		fc.OscillationStateTopic = fmt.Sprintf("%v/oscillation/state", caps.BasePath)
+		fc.OscillationCommandTopic = discovery.Topic(did, "oscillation/set")
+		fc.OscillationStateTopic = discovery.Topic(did, "oscillation/state")
 	}
 
 	if caps.Percentage != nil {
-		fc.PercentageCommandTopic = fmt.Sprintf("%v/percentage/set", caps.BasePath)
-		fc.PercentageStateTopic = fmt.Sprintf("%v/percentage/state", caps.BasePath)
+		fc.PercentageCommandTopic = discovery.Topic(did, "percentage/set")
+		fc.PercentageStateTopic = discovery.Topic(did, "percentage/state")
 		fc.SpeedRangeMin = caps.PercentageMin
 		fc.SpeedRangeMax = caps.PercentageMax
 	}

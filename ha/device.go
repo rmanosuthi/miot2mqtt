@@ -2,6 +2,7 @@ package ha
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -11,6 +12,16 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
+
+type ErrDevUnsupported struct {
+	did   wire.DeviceID
+	model string
+	cls   string
+}
+
+func (e ErrDevUnsupported) Error() string {
+	return fmt.Sprintf("did %v model %v class %v", e.did, e.model, e.cls)
+}
 
 // A Device in this package is its Home Assistant-facing representation.
 // There is no generic New() method; devices should have their own constructor.
@@ -54,6 +65,10 @@ func InitDevice(md device.MiotDevice) (Device, error) {
 	case "fan":
 		return NewFanDevice(md)
 	default:
-		return nil, fmt.Errorf("unsupported device")
+		return nil, errors.Join(errors.ErrUnsupported, ErrDevUnsupported{
+			did:   md.DeviceID,
+			model: md.Model,
+			cls:   svcs[idx].Name(),
+		})
 	}
 }
