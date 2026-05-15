@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -26,6 +27,7 @@ var ErrFanOscOn = errors.New("failed to turn oscillation on")
 var ErrFanOscOff = errors.New("failed to turn oscillation off")
 var ErrFanSpeed = errors.New("failed to set fan speed")
 var ErrFanInit = errors.New("failed to initialize fan")
+var ErrNoHorzAngle = errors.New("fan has no horizontal angle")
 
 // A FanDevice is a concrete device which is a fan,
 // implementing all methods from [Device].
@@ -41,7 +43,8 @@ type FanDevice struct {
 	// Capabilities.
 	FanCaps
 	// Base component.
-	baseCmp fanComponentFan
+	baseCmp      fanComponentFan
+	horzAngleCmp *fanComponentHorzAngle
 }
 
 func (dev *FanDevice) handleCmdOn(ctx context.Context, fc *fanComponentFan, ev Message, l *slog.Logger) error {
@@ -127,10 +130,15 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 	chOnCmd := make(chan Message)
 	chOscCmd := make(chan Message)
 	chPerCmd := make(chan Message)
+	chHorzCmd := make(chan Message)
 
 	c.Subscribe(cmp.CommandTopic, 0, pipeTo(chOnCmd)).Wait()
 	c.Subscribe(cmp.OscillationCommandTopic, 0, pipeTo(chOscCmd)).Wait()
 	c.Subscribe(cmp.PercentageCommandTopic, 0, pipeTo(chPerCmd)).Wait()
+
+	if dev.horzAngleCmp != nil {
+		c.Subscribe(dev.horzAngleCmp.CommandTopic, 0, pipeTo(chHorzCmd)).Wait()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -160,6 +168,30 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 			if err := dev.handleCmdSpeed(cmdCtx, &cmp, ev, l); err != nil {
 				l.Error("handler failed", "reason", err)
 			}
+		case ev := <-chHorzCmd:
+			ev.Message.Ack()
+			s := string(ev.Message.Payload())
+			l := l.With("command", "horizontal_angle")
+			cmdCtx, cancelCmd := context.WithTimeout(ctx, time.Second)
+			defer cancelCmd()
+			iv, err := strconv.Atoi(s)
+			if err != nil {
+				l.Error("handler failed", "reason", err)
+			}
+
+			val := uint16(iv)
+			if val > dev.FanCaps.HorizontalMax {
+				l.Error("handler failed", "reason", "horizontal angle out of range")
+			}
+
+			req, err := prop.NewSetProp(dev.FanCaps.HorizontalAngle, val)
+			if err != nil {
+				l.Error("handler failed", "reason", err)
+			}
+			if err := dev.SetProperty(cmdCtx, req); err != nil {
+				l.Error("handler failed", "reason", err)
+			}
+			ev.Client.Publish(dev.horzAngleCmp.StateTopic, 0, false, val)
 		}
 	}
 }
@@ -171,6 +203,13 @@ func (dev *FanDevice) Discovery() ([]byte, error) {
 	} else {
 		alias = dev.Alias
 	}
+
+	components := make(map[string]any)
+	components[dev.baseCmp.UniqueId] = dev.baseCmp
+
+	if dev.horzAngleCmp != nil {
+		components[dev.horzAngleCmp.UniqueId] = *dev.horzAngleCmp
+	}
 	discov := fandiscov{
 		Base: discovery.Base{
 			Device: discovery.Device{
@@ -180,9 +219,7 @@ func (dev *FanDevice) Discovery() ([]byte, error) {
 			Origin: discovery.Origin{
 				Name: discovery.BaseTopic,
 			},
-			Components: map[string]any{
-				dev.baseCmp.UniqueId: dev.baseCmp,
-			},
+			Components: components,
 		},
 	}
 
@@ -199,12 +236,14 @@ func NewFanDevice(md miot.Device) (*FanDevice, error) {
 		return nil, err
 	}
 
-	baseCmp := fancmps(md.DeviceID, &caps)
+	baseCmp := caps.getFanComponent(md.DeviceID)
+	horzAngleCmp, _ := caps.getHorzAngleComponent(md.DeviceID)
 
 	return &FanDevice{
-		Device:  md,
-		FanCaps: caps,
-		baseCmp: baseCmp,
+		Device:       md,
+		FanCaps:      caps,
+		baseCmp:      baseCmp,
+		horzAngleCmp: horzAngleCmp,
 	}, nil
 }
 
@@ -225,6 +264,15 @@ type fanComponentFan struct {
 	SpeedRangeMax uint8 `json:"speed_range_max,omitempty"`
 }
 
+type fanComponentHorzAngle struct {
+	discovery.BaseCmp
+	CommandTopic string `json:"command_topic"`
+	StateTopic   string `json:"state_topic"`
+	Min          uint16 `json:"min"`
+	Max          uint16 `json:"max"`
+	Step         uint16 `json:"step"`
+}
+
 type FanCaps struct {
 	BasePath        string
 	On              *prop.PropKey
@@ -235,7 +283,7 @@ type FanCaps struct {
 	HorizontalAngle *prop.PropKey
 	HorizontalMin   uint16
 	HorizontalMax   uint16
-	VerticalAngle   *prop.PropKey
+	VerticalSwing   *prop.PropKey
 	VerticalMin     uint8
 	VerticalMax     uint8
 }
@@ -249,12 +297,14 @@ func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 			caps.On = &key
 		case "horizontal-swing":
 			caps.Oscillate = &key
+		case "vertical-swing":
+			caps.VerticalSwing = &key
 		case "fan-level":
 			caps.Percentage = &key
 			if len(key.Ref.ValueList) == 0 {
 				return caps, ErrFanInit
 			}
-			var minVal uint8 = 255
+			var minVal uint8 = math.MaxUint8
 			var maxVal uint8 = 0
 			for val := range config.VList[uint8](&key.Ref) {
 				if val < minVal {
@@ -265,14 +315,58 @@ func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 			}
 			caps.PercentageMin = minVal
 			caps.PercentageMax = maxVal
+		case "horizontal-angle":
+			if len(key.Ref.ValueRange) < 2 {
+				return caps, ErrFanInit
+			}
+			var minVal uint16 = math.MaxUint16
+			var maxVal uint16 = 0
+			for _, jsonVal := range key.Ref.ValueRange {
+				iv, err := jsonVal.Int64()
+				if err != nil {
+					return caps, ErrFanInit
+				}
+
+				val := uint16(iv)
+				if val < minVal {
+					minVal = val
+				} else if val > maxVal {
+					maxVal = val
+				}
+			}
+			caps.HorizontalAngle = &key
+			caps.HorizontalMin = minVal
+			caps.HorizontalMax = maxVal
+		case "vertical-angle":
+			if len(key.Ref.ValueRange) < 2 {
+				return caps, ErrFanInit
+			}
+			var minVal uint8 = math.MaxUint8
+			var maxVal uint8 = 0
+			for _, jsonVal := range key.Ref.ValueRange {
+				iv, err := jsonVal.Int64()
+				if err != nil {
+					return caps, ErrFanInit
+				}
+
+				val := uint8(iv)
+				if val < minVal {
+					minVal = val
+				} else if val > maxVal {
+					maxVal = val
+				}
+			}
+			caps.VerticalMin = minVal
+			caps.VerticalMax = maxVal
 		}
 	}
 	caps.BasePath = fmt.Sprintf("%v/%v", discovery.BaseTopic, dev.DeviceID)
 
+	slog.Debug("fan caps", "did", dev.DeviceID, "caps", caps)
 	return caps, nil
 }
 
-func fancmps(did wire.DeviceID, caps *FanCaps) fanComponentFan {
+func (caps *FanCaps) getFanComponent(did wire.DeviceID) fanComponentFan {
 	baseCmp := discovery.NewBaseCmp(did, "fan", "Fan")
 	fc := fanComponentFan{
 		BaseCmp:      baseCmp,
@@ -293,4 +387,21 @@ func fancmps(did wire.DeviceID, caps *FanCaps) fanComponentFan {
 	}
 
 	return fc
+}
+
+func (caps *FanCaps) getHorzAngleComponent(did wire.DeviceID) (*fanComponentHorzAngle, error) {
+	if caps.HorizontalMin == 0 && caps.HorizontalMax == 0 {
+		return nil, ErrNoHorzAngle
+	}
+
+	baseCmp := discovery.NewBaseCmp(did, "number", "Horizontal Angle")
+	cmp := fanComponentHorzAngle{
+		BaseCmp:      baseCmp,
+		CommandTopic: baseCmp.Topic(did, "set"),
+		StateTopic:   baseCmp.Topic(did, "state"),
+		Min:          caps.HorizontalMin,
+		Max:          caps.HorizontalMax,
+		Step:         1,
+	}
+	return &cmp, nil
 }
