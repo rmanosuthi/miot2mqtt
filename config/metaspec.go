@@ -64,6 +64,6 @@ type Metaspec struct {
 	Status  string
 	Model   string
 	Version uint64
-	Type    string
+	Type    Urn
 	Ts      uint64
 }

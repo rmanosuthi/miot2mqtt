@@ -60,11 +60,17 @@ type MiotDevice struct {
 	timeStart *time.Time
 }
 
+type LoadArgs struct {
+	Prefix *os.Root
+	Global *config.Global
+	Strict bool
+}
+
 type miotDeviceArgs struct {
-	did    wire.DeviceID
-	pfx    *os.Root
-	gc     *config.Global
-	device intermediateDevice
+	DeviceID wire.DeviceID
+	Prefix   *os.Root
+	Global   *config.Global
+	Device   intermediateDevice
 }
 
 // newMiotDevice initializes a MiotDevice.
@@ -75,9 +81,9 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 	// technically we don't even need metaspec if spec file
 	// already exists and cfgDevice.Version is defined,
 	// but keep it simple instead of special casing it
-	dev := &args.device
+	dev := &args.Device
 	spec := &dev.Spec
-	l := slog.Default().With("did", args.did, "alias", dev.Alias, "addr", dev.IPAddr)
+	l := slog.Default().With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr)
 
 	// is the token valid?
 	token := wire.Token{}
@@ -110,7 +116,7 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 
 	// TODO better verification
 	res = MiotDevice{
-		DeviceID:  args.did,
+		DeviceID:  args.DeviceID,
 		Alias:     dev.Alias,
 		Model:     dev.Model,
 		Addr:      addrPort,
@@ -139,6 +145,12 @@ func validateDeviceConfig(c *config.Device) error {
 	return nil
 }
 
+type parsedDevice struct {
+	config.Device
+}
+
+type parsedDevices map[wire.DeviceID]parsedDevice
+
 type intermediateDevice struct {
 	config.Device
 	config.Spec
@@ -146,38 +158,30 @@ type intermediateDevice struct {
 
 type intermediateDevices map[wire.DeviceID]intermediateDevice
 
-// LoadDevices loads devices' states from disk.
-// It must be given metaspecs to resolve.
-// ctx is only used to cancel initialization and is not stored.
-//
-// The lifecycle of a [MiotDevice] is as follows:
-//
-//	[config.Devices] loaded
-//	for each [config.Device]:
-//	 - validate
-//	 - find matching [Metaspec]
-//	 - [Populate] the [Spec]
-//	 - return as [intermediateDevice]
-//	parallel for each [intermediateDevice]:
-//	 call [newMiotDevice]
-func LoadDevices(ctx context.Context, pfx *os.Root, gc *config.Global,
-	metaspecs []config.Metaspec, strict bool) (MapDevices, error) {
-	var cfgDevices config.Devices
-	err := config.Populate(&cfgDevices, config.Args[config.NoHint]{
-		Prefix: pfx,
-		Global: gc,
-		Hint:   nil,
-	})
-	if err != nil {
-		return nil, err
+func populateSpec(dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
+	var spec config.Spec
+	// find matching metaspec
+	for _, metaspec := range metaspecs {
+		if metaspec.Model == dev.Model && metaspec.Version == dev.Version {
+			args := config.Args[config.SpecHint]{
+				Prefix: args.Prefix,
+				Global: args.Global,
+				Hint: &config.SpecHint{
+					Model:   metaspec.Model,
+					Version: metaspec.Version,
+					URN:     &metaspec.Type,
+				},
+			}
+			err := config.Populate(&spec, args)
+			return spec, err
+		}
 	}
-	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
+	return spec, ErrNoMetaspec
+}
 
-	// build lookup table first
-	deviceModels := make(intermediateDevices)
-
-	// config validation pass
-	for didStr, cfgDevice := range cfgDevices {
+func parseDevices(devs config.Devices) (parsedDevices, error) {
+	res := make(parsedDevices)
+	for didStr, cfgDevice := range devs {
 		if !cfgDevice.Enabled {
 			slog.Debug("found disabled device", "did", didStr)
 			continue
@@ -198,27 +202,103 @@ func LoadDevices(ctx context.Context, pfx *os.Root, gc *config.Global,
 			return nil, errors.Join(ErrDeviceInit, err)
 		}
 
+		res[did] = parsedDevice{cfgDevice}
+	}
+	return res, nil
+}
+
+// LoadDevices loads devices' states from disk.
+// Metaspecs may be loaded for devices without a spec file.
+// ctx is only used to cancel initialization and is not stored.
+//
+// The lifecycle of a [MiotDevice] is as follows:
+//
+//	[config.Devices] loaded
+//	for each [config.Device]:
+//	 - validate
+//	 - load spec
+//	 - if found, return as [intermediateDevice]
+//	 - else, defer loading
+//	if deferred devices present, load metaspec
+//	for each deferred device:
+//	 - populate spec from metaspec
+//	 - return as [intermediateDevice]
+//	parallel for each [intermediateDevice]:
+//	 call [newMiotDevice]
+func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
+	var cfgDevices config.Devices
+	err := config.Populate(&cfgDevices, config.Args[config.NoHint]{
+		Prefix: args.Prefix,
+		Global: args.Global,
+		Hint:   nil,
+	})
+	if err != nil {
+		return nil, err
+	}
+	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
+
+	devs, err := parseDevices(cfgDevices)
+	if err != nil {
+		return nil, err
+	}
+	slog.Debug("devices pass 2: parse", "found", len(devs))
+
+	deferredDevices := make(parsedDevices)
+	deviceModels := make(intermediateDevices)
+
+	// load devices with specs already present
+	for did, dev := range devs {
 		var spec config.Spec
-		// find matching metaspec
-		for _, metaspec := range metaspecs {
-			if metaspec.Model == cfgDevice.Model && metaspec.Version == cfgDevice.Version {
-				args := config.Args[config.Metaspec]{
-					Prefix: pfx,
-					Global: gc,
-					Hint:   &metaspec,
-				}
-				err := config.Populate(&spec, args)
-				if err != nil {
-					return nil, err
-				}
+		args := config.Args[config.SpecHint]{
+			Global: args.Global,
+			Prefix: args.Prefix,
+			Hint: &config.SpecHint{
+				Model:   dev.Model,
+				Version: dev.Version,
+			},
+		}
+		// TODO don't assume err means "file not found, so must populate"
+		err := config.Load(&spec, args)
+		if err != nil {
+			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
+			deferredDevices[did] = dev
+		} else {
+			deviceModels[did] = intermediateDevice{
+				Device: dev.Device,
+				Spec:   spec,
 			}
 		}
-		deviceModels[did] = intermediateDevice{
-			Device: cfgDevice,
-			Spec:   spec,
-		}
 	}
-	slog.Debug("devices pass 2: config, specs", "found", len(deviceModels))
+	slog.Debug("devices pass 3: load those with specs",
+		"with", len(deviceModels),
+		"without", len(deferredDevices),
+	)
+
+	if len(deferredDevices) > 0 {
+		// load metaspecs
+		var ms config.Metaspecs
+		msargs := config.Args[config.NoHint]{
+			Prefix: args.Prefix,
+			Global: nil,
+			Hint:   nil,
+		}
+		err = config.Populate(&ms, msargs)
+		// TODO better message
+		if err != nil {
+			return nil, err
+		}
+		for did, dev := range deferredDevices {
+			spec, err := populateSpec(dev, ms.Instances, args)
+			if err != nil {
+				return nil, err
+			}
+			deviceModels[did] = intermediateDevice{
+				Device: dev.Device,
+				Spec:   spec,
+			}
+		}
+		slog.Debug("devices pass 3a: metaspecs")
+	}
 
 	// devices can take a while to respond (or not)
 	// init devices in parallel
@@ -233,9 +313,10 @@ func LoadDevices(ctx context.Context, pfx *os.Root, gc *config.Global,
 
 	for did, dev := range deviceModels {
 		args := miotDeviceArgs{
-			did: did,
-			pfx: pfx, gc: gc,
-			device: dev,
+			DeviceID: did,
+			Prefix:   args.Prefix,
+			Global:   args.Global,
+			Device:   dev,
 		}
 		wg.Go(func() {
 			dev, err := newMiotDevice(initCtx, args)
@@ -254,7 +335,7 @@ func LoadDevices(ctx context.Context, pfx *os.Root, gc *config.Global,
 	for devInit := range devices {
 		slog.Debug("initDevice")
 		err := devInit.Error
-		if !strict {
+		if !args.Strict {
 			if err != nil && !errors.Is(err, ErrDevicePing) {
 				// error is too severe, don't register device
 				slog.Warn("not registering device", "reason", err)

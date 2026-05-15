@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -13,6 +14,8 @@ import (
 )
 
 type SpecID = uint16
+
+var ErrNoSpecHint = errors.New("tried to fetch spec with no hint")
 
 const SpecUrl = "https://miot-spec.org/miot-spec-v2/instance?type="
 const SpecPath = "vendor/spec/"
@@ -100,21 +103,24 @@ type specReq struct {
 	Error     error
 }
 
-func (spec *Spec) Default(pfx *os.Root, gc *Global, hint *Metaspec) error {
-	if hint.Version == 0 {
-		return fmt.Errorf("version is 0??")
+type SpecHint struct {
+	Model   string
+	Version uint64
+	URN     *Urn
+}
+
+func (spec *Spec) Default(pfx *os.Root, gc *Global, hint *SpecHint) error {
+	if hint.Version == 0 || hint.URN == nil {
+		return ErrNoSpecHint
 	}
 	if !gc.General.AllowExternalNetwork {
 		return ErrNoExtNet
 	}
 	slog.Info("downloading device spec", "model", hint.Model, "version", hint.Version)
-	return downloadSpec(context.TODO(), hint.Type, spec)
+	return downloadSpec(context.TODO(), *hint.URN, spec)
 }
 
-func (spec *Spec) Suffix(hint *Metaspec) (string, error) {
-	if hint == nil {
-		return "", fmt.Errorf("no metaspec")
-	}
+func (spec *Spec) Suffix(hint *SpecHint) (string, error) {
 	var sb strings.Builder
 	sb.WriteString(SpecPath)
 	fmt.Fprintf(&sb, "v%v.", hint.Version)
@@ -135,9 +141,9 @@ func (spec *Spec) UnmarshalFunc(src []byte) error {
 	return err
 }
 
-func downloadSpec(ctx context.Context, urn string, spec *Spec) error {
+func downloadSpec(ctx context.Context, urn Urn, spec *Spec) error {
 	ch := make(chan specReq)
-	url := SpecUrl + urn
+	url := SpecUrl + urn.String()
 	go func(ctx context.Context) {
 		slog.Debug("downloading device spec", "url", url)
 		resp, err := http.Get(url)
