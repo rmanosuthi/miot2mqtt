@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"unique"
@@ -26,8 +27,11 @@ func (urn *Urn) UnmarshalText(text []byte) error {
 	raw := string(text)
 	segments := strings.Split(raw, ":")
 	lenSegs := len(segments)
+	if lenSegs < 7 {
+		return fmt.Errorf("%w: insufficient segment count %v", ErrUnmarshalUrn, lenSegs)
+	}
 	if lenSegs != 7 {
-		return fmt.Errorf("%w: wrong segment count %v", ErrUnmarshalUrn, lenSegs)
+		slog.Debug("urn has unexpected segment count", "urn", raw)
 	}
 
 	if segments[0] != "urn" {

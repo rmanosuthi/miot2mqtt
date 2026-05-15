@@ -11,7 +11,6 @@ type ActionKey struct {
 
 // parseActions returns a map of [ActionKey]s for use by [MiotDevice].
 func parseActions(spec *config.Spec) map[config.Urn]ActionKey {
-	// TODO
 	diid := ""
 
 	res := make(map[config.Urn]ActionKey)

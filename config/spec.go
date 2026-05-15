@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 type SpecID = uint16
@@ -42,10 +44,10 @@ func (s *SpecService) Name() string {
 type SpecProp struct {
 	IID SpecID `json:"iid"`
 	// Urn is renamed from "type" to better reflect what it is.
-	Urn         Urn      `json:"type"`
-	Description string   `json:"description"`
-	Format      string   `json:"format"`
-	Access      []string `json:"access"`
+	Urn         Urn         `json:"type"`
+	Description string      `json:"description"`
+	Format      wire.MiType `json:"format"`
+	Access      []string    `json:"access"`
 	// only defined when an integer/floating point
 	ValueRange []json.Number `json:"value-range,omitempty"`
 	// integer only

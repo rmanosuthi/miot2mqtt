@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -136,12 +137,8 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 //   - access a device's state through its ID
 type MapDevices map[wire.DeviceID]MiotDevice
 
+// TODO
 func validateDeviceConfig(c *config.Device) error {
-	if c.Model == "" {
-		slog.Warn("device model undefined, contacting it")
-		// TODO
-	}
-	// don't deal with Version yet, need metaspecs
 	return nil
 }
 
@@ -257,11 +254,12 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 				Version: dev.Version,
 			},
 		}
-		// TODO don't assume err means "file not found, so must populate"
 		err := config.Load(&spec, args)
-		if err != nil {
+		if err != nil && errors.Is(err, fs.ErrNotExist) {
 			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
 			deferredDevices[did] = dev
+		} else if err != nil {
+			return nil, err
 		} else {
 			deviceModels[did] = intermediateDevice{
 				Device: dev.Device,
@@ -279,7 +277,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		var ms config.Metaspecs
 		msargs := config.Args[config.NoHint]{
 			Prefix: args.Prefix,
-			Global: nil,
+			Global: args.Global,
 			Hint:   nil,
 		}
 		err = config.Populate(&ms, msargs)
