@@ -28,14 +28,16 @@ type Base[C any] struct {
 // Base type for Component. Devices should wrap this.
 // DeviceClass not provided here as some don't use it.
 type BaseCmp struct {
+	Name     string `json:"name"`
 	Platform string `json:"p"`
 	UniqueId string `json:"uniq_id"`
 }
 
-func NewBaseCmp(did wire.DeviceID, cls string) BaseCmp {
+func NewBaseCmp(did wire.DeviceID, cls string, alias string) BaseCmp {
 	return BaseCmp{
 		Platform: cls,
 		UniqueId: fmt.Sprintf("%v_%v", did, cls),
+		Name:     alias,
 	}
 }
 

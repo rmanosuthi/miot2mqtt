@@ -163,11 +163,17 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 }
 
 func (dev *FanDevice) Discovery() ([]byte, error) {
+	var alias string
+	if dev.Alias == "" {
+		alias = strconv.Itoa(int(dev.DeviceID))
+	} else {
+		alias = dev.Alias
+	}
 	discov := fandiscov{
 		Base: discovery.Base[fancmp]{
 			Device: discovery.Device{
 				Identifiers: discovery.Ident(dev.DeviceID),
-				Name:        dev.Alias,
+				Name:        alias,
 			},
 			Origin: discovery.Origin{
 				Name: BaseTopic,
@@ -258,7 +264,7 @@ func GetFanCaps(dev *device.MiotDevice) (FanCaps, error) {
 
 func fancmps(did wire.DeviceID, caps *FanCaps) map[string]fancmp {
 	fc := fancmp{
-		BaseCmp:      discovery.NewBaseCmp(did, "fan"),
+		BaseCmp:      discovery.NewBaseCmp(did, "fan", "Fan"),
 		CommandTopic: discovery.Topic(did, "on/set"),
 		StateTopic:   discovery.Topic(did, "on/state"),
 	}
@@ -275,5 +281,7 @@ func fancmps(did wire.DeviceID, caps *FanCaps) map[string]fancmp {
 		fc.SpeedRangeMax = caps.PercentageMax
 	}
 
+	// TODO figure out component name logic.
+	// It can't just be anything.
 	return map[string]fancmp{"fan": fc}
 }
