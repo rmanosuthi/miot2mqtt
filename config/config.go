@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 var ErrPopulate = errors.New("failed to populate config")
@@ -142,8 +143,13 @@ func Populate[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 	gc := args.Global
 	hint := args.Hint
 
+	if err := pfx.MkdirAll(filepath.Dir(relPath), 0770); err != nil {
+		return errors.Join(ErrPopulate, err)
+	}
+
 	f, err := pfx.OpenFile(relPath, os.O_RDWR, 0o644)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
+
 		f, err := pfx.OpenFile(relPath, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0o644)
 		if err != nil {
 			l.Debug("err create file")

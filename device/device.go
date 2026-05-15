@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,8 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,9 +65,10 @@ type MiotDevice struct {
 }
 
 type LoadArgs struct {
-	Prefix *os.Root
-	Global *config.Global
-	Strict bool
+	Prefix    *os.Root
+	Global    *config.Global
+	Strict    bool
+	AddDevice string
 }
 
 type miotDeviceArgs struct {
@@ -206,6 +210,51 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 	return res, nil
 }
 
+type resolveDeviceResult struct {
+	config.Device
+	DeviceID wire.DeviceID
+}
+
+func resolveDevice(ctx context.Context, args LoadArgs, dev string) (resolveDeviceResult, error) {
+	var res resolveDeviceResult
+	// expect form "ip,tokenhex"
+	segs := strings.Split(args.AddDevice, ",")
+	if len(segs) != 2 {
+		return res, fmt.Errorf("%w: wrong segment len %v", ErrDeviceInit, len(segs))
+	}
+
+	addr, err := netip.ParseAddr(segs[0])
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	var tokenBytes [16]byte
+	tokenLen, err := hex.Decode(tokenBytes[:], []byte(segs[1]))
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+	if tokenLen != wire.TokenLen {
+		return res, fmt.Errorf("%w: wrong token len %v", ErrDeviceInit, err)
+	}
+	token, err := wire.NewToken(tokenBytes)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	devInfo, err := ResolveFromIpToken(ctx, addr, token)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	res.IPAddr = addr
+	res.Model = devInfo.Model
+	res.Token = segs[1]
+	res.DeviceID = devInfo.DeviceID
+	res.Version = 1
+	res.Enabled = true
+	return res, nil
+}
+
 // LoadDevices loads devices' states from disk.
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
@@ -233,6 +282,29 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// are there new devices to be added too?
+	if args.AddDevice != "" {
+		dev, err := resolveDevice(ctx, args, args.AddDevice)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO don't default to Version 1
+		// TODO don't return a "device already exists" error so late
+		// workaround: backconvert did to string to
+		// fit into cfgDevices
+		didStr := strconv.Itoa(int(dev.DeviceID))
+		if _, ok := cfgDevices[didStr]; ok {
+			return nil, fmt.Errorf("device already defined in config!")
+		}
+		cfgDevices[didStr] = dev.Device
+		config.Flush(&cfgDevices, config.Args[config.NoHint]{
+			Prefix: args.Prefix,
+			Global: args.Global,
+			Hint:   nil,
+		})
 	}
 	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
 

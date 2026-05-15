@@ -4,11 +4,6 @@
 
 Currently, only fans are supported. This project is still in its infancy.
 
-> [!NOTE]
-> 99% handcrafted; no AI assistance except for Google's RAG responses when searching.
-> See [securebin](https://github.com/rmanosuthi/securebin) for a heavily AI-assisted project;
-> it's quite a timesaver.
-
 ## Getting Started
 
 1. `go build ./cmd/daemon`
@@ -40,10 +35,10 @@ Do not edit anything in `/cache/` as the program is not tolerant of any errors.
 
 ## Vendor files
 
-Devices need "spec" files to operate.
+Devices need "spec" files and an "instances" file to operate.
 These can be fetched automatically when `config.toml` has `AllowExternalNetwork = true`.
 
-Otherwise you must provide the files yourself in `vendor/`.
+Otherwise you must provide the files yourself in `vendor/`. But really, just let me handle it.
 
 ## How's this different from *that popular project?*
 
@@ -53,3 +48,10 @@ Otherwise you must provide the files yourself in `vendor/`.
 - Less coupled to HA; can run on an entirely different device.
 - Written in Go and uses a fair amount of goroutines, so should be more responsive.
 - Way less emojis.
+
+## Extent of AI assistance?
+
+99% handcrafted; no AI assistance except for Google's unavoidable RAG responses when searching.
+I deliberately want to work on this project myself.
+
+See [securebin](https://github.com/rmanosuthi/securebin) for a heavily AI-assisted project.
