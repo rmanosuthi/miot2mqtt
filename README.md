@@ -6,13 +6,18 @@ Currently, only fans are supported. This project is still in its infancy.
 
 ## Getting Started
 
+You'll need a Go compiler, your devices' IPs and tokens.
+There are programs out there for fetching tokens. [Here's one.](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor)
+
 1. `go build ./cmd/daemon`
 2. Copy the resulting `./daemon` somewhere.
 3. Create a prefix folder, see section below.
 4. Run `daemon -P {prefix}`.
 On first run it will create a default config in `{prefix}/config.toml` and exit.
 5. Edit the created config.
-6. Rerun `daemon -P {prefix}`.
+6. You'll want to add some devices. Run `daemon -P {prefix} -a "{ipaddr},{tokenhex}"`.
+
+Example: `daemon -P ~/m2m/ -a "192.168.1.154,a2b9d813107c8b2ece0bd517ddf860bc"`
 
 ## Prefix
 

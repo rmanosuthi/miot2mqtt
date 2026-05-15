@@ -95,6 +95,7 @@ func (conn HaConn) Consume(ctx context.Context, cs HaConsume) error {
 				slog.Warn("discovery fail", "reason", err)
 			}
 			wg.Go(func() {
+				slog.Info("device online")
 				err := dev.Subscribe(ctx, conn.l, c)
 				if err != nil {
 					slog.Error("device sub failed", "reason", err)

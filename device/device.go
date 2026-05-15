@@ -88,7 +88,7 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 	// but keep it simple instead of special casing it
 	dev := &args.Device
 	spec := &dev.Spec
-	l := slog.Default().With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr)
+	l := slog.Default().With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr, "model", dev.Model)
 
 	// is the token valid?
 	token := wire.Token{}
