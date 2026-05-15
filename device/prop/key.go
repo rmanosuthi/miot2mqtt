@@ -27,10 +27,10 @@ func (key *PropKey) Notify() bool {
 	return slices.Contains(key.Ref.Access, "notify")
 }
 
-func ParseFrom(spec *config.Spec) map[config.Urn]PropKey {
+func ParseFrom(spec *config.Spec) map[config.URN]PropKey {
 	diid := ""
 
-	res := make(map[config.Urn]PropKey)
+	res := make(map[config.URN]PropKey)
 	for _, svc := range spec.Services {
 		siid := svc.IID
 		for _, prop := range svc.Properties {

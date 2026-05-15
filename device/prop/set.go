@@ -14,7 +14,7 @@ type SetProp struct {
 	Error    error
 }
 
-type SetPropsReq = map[config.Urn]SetProp
+type SetPropsReq = map[config.URN]SetProp
 
 type SetPropKey struct {
 	*PropKey

@@ -61,9 +61,9 @@ func (ms *Metaspecs) UnmarshalFunc(src []byte) error {
 //
 // Populate isn't appropriate since it's a member of Metaspecs.
 type Metaspec struct {
-	Status  string
-	Model   string
-	Version uint64
-	Type    Urn
-	Ts      uint64
+	Status    string `json:"status"`
+	Model     string `json:"model"`
+	Version   uint64 `json:"version"`
+	SpecURN   URN    `json:"type"`
+	Timestamp uint64 `json:"ts"`
 }

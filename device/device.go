@@ -46,9 +46,9 @@ type MiotDevice struct {
 	Token wire.Token
 	// Spec resolved through [Metaspec].
 	Spec    config.Spec
-	Actions map[config.Urn]ActionKey
+	Actions map[config.URN]ActionKey
 	// Properties. See [Device Properties].
-	Props map[config.Urn]prop.PropKey
+	Props map[config.URN]prop.PropKey
 
 	dialer net.Dialer
 	// Devices have a second-precision timestamp with the epoch being
@@ -115,7 +115,6 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 		l.Debug("when timestamp=0 time was", "time", timeStart)
 	}
 
-	// TODO better verification
 	res = MiotDevice{
 		DeviceID:  args.DeviceID,
 		Alias:     dev.Alias,
@@ -155,7 +154,7 @@ type intermediateDevice struct {
 
 type intermediateDevices map[wire.DeviceID]intermediateDevice
 
-func populateSpec(dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
+func populateSpec(ctx context.Context, dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
 	var spec config.Spec
 	// find matching metaspec
 	for _, metaspec := range metaspecs {
@@ -166,7 +165,10 @@ func populateSpec(dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) 
 				Hint: &config.SpecHint{
 					Model:   metaspec.Model,
 					Version: metaspec.Version,
-					URN:     &metaspec.Type,
+					Download: &config.SpecDownload{
+						URN:     metaspec.SpecURN,
+						Context: ctx,
+					},
 				},
 			}
 			err := config.Populate(&spec, args)
@@ -250,8 +252,9 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Global: args.Global,
 			Prefix: args.Prefix,
 			Hint: &config.SpecHint{
-				Model:   dev.Model,
-				Version: dev.Version,
+				Model:    dev.Model,
+				Version:  dev.Version,
+				Download: nil,
 			},
 		}
 		err := config.Load(&spec, args)
@@ -273,7 +276,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	)
 
 	if len(deferredDevices) > 0 {
-		// load metaspecs
+		// populate metaspecs
 		var ms config.Metaspecs
 		msargs := config.Args[config.NoHint]{
 			Prefix: args.Prefix,
@@ -281,12 +284,12 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Hint:   nil,
 		}
 		err = config.Populate(&ms, msargs)
-		// TODO better message
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
 		}
+
 		for did, dev := range deferredDevices {
-			spec, err := populateSpec(dev, ms.Instances, args)
+			spec, err := populateSpec(ctx, dev, ms.Instances, args)
 			if err != nil {
 				return nil, err
 			}

@@ -13,7 +13,7 @@ import (
 
 var ErrUnmarshalUrn = errors.New("failed to unmarshal urn")
 
-type Urn struct {
+type URN struct {
 	raw           unique.Handle[string]
 	Namespace     unique.Handle[string]
 	Type          unique.Handle[string]
@@ -23,7 +23,7 @@ type Urn struct {
 	Version       uint64
 }
 
-func (urn *Urn) UnmarshalText(text []byte) error {
+func (urn *URN) UnmarshalText(text []byte) error {
 	raw := string(text)
 	segments := strings.Split(raw, ":")
 	lenSegs := len(segments)
@@ -49,10 +49,10 @@ func (urn *Urn) UnmarshalText(text []byte) error {
 	return nil
 }
 
-func (urn *Urn) MarshalText() ([]byte, error) {
+func (urn *URN) MarshalText() ([]byte, error) {
 	return []byte(urn.raw.Value()), nil
 }
 
-func (urn *Urn) String() string {
+func (urn *URN) String() string {
 	return urn.raw.Value()
 }

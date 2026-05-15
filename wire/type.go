@@ -51,7 +51,7 @@ func (t *MiType) UnmarshalText(text []byte) error {
 		t.Type = reflect.TypeFor[string]()
 		return nil
 	case "hex":
-		// TODO
+		// TODO make this stricter
 		t.Type = reflect.TypeFor[string]()
 		return nil
 	}

@@ -103,6 +103,10 @@ func Load[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 		l.Debug("err read file")
 		return errors.Join(ErrLoad, err)
 	}
+	if buf.Len() == 0 {
+		l.Warn("file len is 0, this doesn't look right. try deleting the file.")
+	}
+
 	err = T.UnmarshalFunc(state, buf.Bytes())
 	if err != nil {
 		l.Debug("err UnmarshalFunc()")
@@ -182,6 +186,10 @@ func Populate[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 			l.Debug("err read file")
 			return errors.Join(ErrPopulate, err)
 		}
+		if buf.Len() == 0 {
+			l.Warn("file len is 0, this doesn't look right. try deleting the file.")
+		}
+
 		err = T.UnmarshalFunc(state, buf.Bytes())
 		if err != nil {
 			l.Debug("err UnmarshalFunc()")

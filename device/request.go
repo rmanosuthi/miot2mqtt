@@ -53,7 +53,7 @@ import (
 // Response types can be assumed to have been checked, but the caller may still want to typecast them.
 //
 // Cancel ctx to abort the request.
-func (dev *MiotDevice) GetProperties(ctx context.Context, predicate func(config.Urn, prop.PropKey) bool) (prop.GetPropsReq, error) {
+func (dev *MiotDevice) GetProperties(ctx context.Context, predicate func(config.URN, prop.PropKey) bool) (prop.GetPropsReq, error) {
 	req := make(prop.GetPropsReq)
 	for urn, propKey := range dev.Props {
 		if predicate(urn, propKey) {
