@@ -204,7 +204,8 @@ type FanCaps struct {
 
 func GetFanCaps(dev *device.MiotDevice) (FanCaps, error) {
 	var caps FanCaps
-	err := device.GetCaps(func(key prop.PropKey) error {
+
+	for _, key := range dev.Props {
 		switch key.Ref.Name() {
 		case "on":
 			caps.On = &key
@@ -213,11 +214,11 @@ func GetFanCaps(dev *device.MiotDevice) (FanCaps, error) {
 		case "fan-level":
 			caps.Percentage = &key
 			if len(key.Ref.ValueList) == 0 {
-				return ErrFanInit
+				return caps, ErrFanInit
 			}
 			var minVal uint8 = 255
 			var maxVal uint8 = 0
-			for val, _ := range config.VList[uint8](&key.Ref) {
+			for val := range config.VList[uint8](&key.Ref) {
 				if val < minVal {
 					minVal = val
 				} else if val > maxVal {
@@ -227,11 +228,10 @@ func GetFanCaps(dev *device.MiotDevice) (FanCaps, error) {
 			caps.PercentageMin = minVal
 			caps.PercentageMax = maxVal
 		}
-		return nil
-	}, dev)
+	}
 	caps.BasePath = fmt.Sprintf("%v/%v", BaseTopic, dev.DeviceID)
 
-	return caps, err
+	return caps, nil
 }
 
 func fancmps(did wire.DeviceID, caps *FanCaps) map[string]fancmp {
