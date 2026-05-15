@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/device"
@@ -136,19 +137,25 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 		case ev := <-chOnCmd:
 			ev.Message.Ack()
 			l := l.With("command", "on")
-			if err := dev.handleCmdOn(ctx, &cmp, ev, l); err != nil {
+			cmdCtx, cancelCmd := context.WithTimeout(ctx, time.Second)
+			defer cancelCmd()
+			if err := dev.handleCmdOn(cmdCtx, &cmp, ev, l); err != nil {
 				l.Error("handler failed", "reason", err)
 			}
 		case ev := <-chOscCmd:
 			ev.Message.Ack()
 			l := l.With("command", "oscillate")
-			if err := dev.handleCmdOscillate(ctx, &cmp, ev, l); err != nil {
+			cmdCtx, cancelCmd := context.WithTimeout(ctx, time.Second)
+			defer cancelCmd()
+			if err := dev.handleCmdOscillate(cmdCtx, &cmp, ev, l); err != nil {
 				l.Error("handler failed", "reason", err)
 			}
 		case ev := <-chPerCmd:
 			ev.Message.Ack()
 			l := l.With("command", "percentage")
-			if err := dev.handleCmdSpeed(ctx, &cmp, ev, l); err != nil {
+			cmdCtx, cancelCmd := context.WithTimeout(ctx, time.Second)
+			defer cancelCmd()
+			if err := dev.handleCmdSpeed(cmdCtx, &cmp, ev, l); err != nil {
 				l.Error("handler failed", "reason", err)
 			}
 		}

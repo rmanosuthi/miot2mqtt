@@ -115,6 +115,7 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 		l.Warn("device unreachable", "reason", err)
 		err = errors.Join(ErrDevicePing, err)
 	} else {
+		l.Info("initialized device")
 		timeStart = new(pong.Timestamp.EpochTime(time.Now()))
 		l.Debug("when timestamp=0 time was", "time", timeStart)
 	}
