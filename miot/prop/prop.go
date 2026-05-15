@@ -10,6 +10,9 @@ import (
 
 var ErrParseResponse = errors.New("failed to parse miot response")
 
+type PropKeys = map[config.URN]PropKey
+type Props = map[PropKey]config.SpecProp
+
 type RawQuery struct {
 	ID     uint32       `json:"id"`
 	Method string       `json:"method"`

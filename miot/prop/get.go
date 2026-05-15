@@ -1,21 +1,16 @@
 package prop
 
-import (
-	"github.com/rmanosuthi/miot2mqtt/config"
-)
-
 type GetProp struct {
-	PropKey
 	Response ResponseEntry
 	Error    error
 }
 
-type GetPropsReq = map[config.URN]GetProp
+type GetPropsReq = map[PropKey]GetProp
 
 // Puts keys in req into the wire format struct.
 func MakeGetQuery(connId uint32, req GetPropsReq) (RawQuery, error) {
 	var props []QueryEntry
-	for _, key := range req {
+	for key, _ := range req {
 		props = append(props, QueryEntry{
 			DID:   key.DID,
 			SIID:  key.SIID,

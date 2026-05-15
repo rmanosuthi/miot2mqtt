@@ -2,29 +2,34 @@ package miot
 
 import "github.com/rmanosuthi/miot2mqtt/config"
 
+// TODO never tested!
 type ActionKey struct {
-	DIID string
-	SIID config.SpecID
-	AIID config.SpecID
-	Ref  config.SpecAction
+	DIID string        `json:"diid"`
+	SIID config.SpecID `json:"siid"`
+	AIID config.SpecID `json:"aiid"`
 }
 
-// parseActions returns a map of [ActionKey]s for use by [Device].
-func parseActions(spec *config.Spec) map[config.URN]ActionKey {
+type ActionKeys = map[config.URN]ActionKey
+type Actions = map[ActionKey]config.SpecAction
+
+func parseActions(spec *config.Spec) (ActionKeys, Actions) {
 	diid := ""
 
-	res := make(map[config.URN]ActionKey)
+	actionKeys := make(ActionKeys)
+	actions := make(Actions)
 	for _, svc := range spec.Services {
 		siid := svc.IID
 		for _, act := range svc.Actions {
+			aurn := act.Type
 			aiid := act.IID
-			res[act.Type] = ActionKey{
+			key := ActionKey{
 				DIID: diid,
 				SIID: siid,
 				AIID: aiid,
-				Ref:  act,
 			}
+			actionKeys[aurn] = key
+			actions[key] = act
 		}
 	}
-	return res
+	return actionKeys, actions
 }

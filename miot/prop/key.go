@@ -3,7 +3,6 @@ package prop
 import (
 	"fmt"
 	"reflect"
-	"slices"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 )
@@ -12,41 +11,31 @@ type PropKey struct {
 	DID  string
 	SIID config.SpecID
 	PIID config.SpecID
-	Ref  config.SpecProp
 }
 
-func (key *PropKey) Read() bool {
-	return slices.Contains(key.Ref.Access, "read")
-}
-
-func (key *PropKey) Write() bool {
-	return slices.Contains(key.Ref.Access, "write")
-}
-
-func (key *PropKey) Notify() bool {
-	return slices.Contains(key.Ref.Access, "notify")
-}
-
-func ParseFrom(spec *config.Spec) map[config.URN]PropKey {
+func Parse(spec *config.Spec) (PropKeys, Props) {
 	diid := ""
 
-	res := make(map[config.URN]PropKey)
+	propKeys := make(PropKeys)
+	props := make(Props)
 	for _, svc := range spec.Services {
 		siid := svc.IID
 		for _, prop := range svc.Properties {
+			purn := prop.Urn
 			piid := prop.IID
-			res[prop.Urn] = PropKey{
+			key := PropKey{
 				DID:  diid,
 				SIID: siid,
 				PIID: piid,
-				Ref:  prop,
 			}
+			propKeys[purn] = key
+			props[key] = prop
 		}
 	}
-	return res
+	return propKeys, props
 }
 
-func (key *PropKey) Unwrap(resp []ResponseEntry) (ResponseEntry, error) {
+func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
 	kpiid := key.PIID
@@ -55,7 +44,7 @@ func (key *PropKey) Unwrap(resp []ResponseEntry) (ResponseEntry, error) {
 		rsiid := rprop.SIID
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
-			expectedType := key.Ref.Format
+			expectedType := spec.Format
 			foundType := reflect.TypeOf(rprop.Value)
 			if foundType == nil {
 				return rprop, nil
