@@ -88,7 +88,7 @@ type Device interface {
 // reading SIID == [matchClassHint].
 //
 // On success, a concrete device is initialized.
-func InitDevice(md miot.MiotDevice) (Device, error) {
+func InitDevice(md miot.Device) (Device, error) {
 	svcs := md.Spec.Services
 	idx := slices.IndexFunc(svcs, matchClassHint)
 	if idx == -1 {

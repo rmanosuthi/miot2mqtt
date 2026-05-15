@@ -37,7 +37,7 @@ var ErrFanInit = errors.New("failed to initialize fan")
 type FanDevice struct {
 	// [NewFanDevice] accepts a [device.MiotDevice] and
 	// stores it in here.
-	miot.MiotDevice
+	miot.Device
 	// Capabilities.
 	FanCaps
 	// Base component.
@@ -193,7 +193,7 @@ func (dev *FanDevice) Ident() wire.DeviceID {
 	return dev.DeviceID
 }
 
-func NewFanDevice(md miot.MiotDevice) (*FanDevice, error) {
+func NewFanDevice(md miot.Device) (*FanDevice, error) {
 	caps, err := GetFanCaps(&md)
 	if err != nil {
 		return nil, err
@@ -202,9 +202,9 @@ func NewFanDevice(md miot.MiotDevice) (*FanDevice, error) {
 	baseCmp := fancmps(md.DeviceID, &caps)
 
 	return &FanDevice{
-		MiotDevice: md,
-		FanCaps:    caps,
-		baseCmp:    baseCmp,
+		Device:  md,
+		FanCaps: caps,
+		baseCmp: baseCmp,
 	}, nil
 }
 
@@ -240,7 +240,7 @@ type FanCaps struct {
 	VerticalMax     uint8
 }
 
-func GetFanCaps(dev *miot.MiotDevice) (FanCaps, error) {
+func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 	var caps FanCaps
 
 	for _, key := range dev.Props {

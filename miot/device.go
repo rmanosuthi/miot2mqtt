@@ -27,7 +27,7 @@ var ErrDeviceRecv = errors.New("failed to receive from device")
 var ErrDevicePing = errors.New("failed to ping device")
 var ErrDeviceUninit = errors.New("device not initialized")
 
-// A MiotDevice is a low-level representation of a device.
+// A Device is a low-level representation of a device.
 // All populated fields suffice to issue commands to one.
 //
 // The high-level equivalent is in [ha.Device].
@@ -36,7 +36,7 @@ var ErrDeviceUninit = errors.New("device not initialized")
 // which operates on all devices defined in [config.Devices].
 //
 // See [newMiotDevice] for internal initialization.
-type MiotDevice struct {
+type Device struct {
 	// Device identifier.
 	DeviceID wire.DeviceID
 	// User-friendly name, see [config.Device].
@@ -78,10 +78,10 @@ type miotDeviceArgs struct {
 	Device   intermediateDevice
 }
 
-// newMiotDevice initializes a MiotDevice.
+// newDevice initializes a MiotDevice.
 // This function will return both a MiotDevice and ErrDevicePing if the device couldn't be reached.
-func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error) {
-	var res MiotDevice
+func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
+	var res Device
 
 	// technically we don't even need metaspec if spec file
 	// already exists and cfgDevice.Version is defined,
@@ -120,7 +120,7 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 		l.Debug("when timestamp=0 time was", "time", timeStart)
 	}
 
-	res = MiotDevice{
+	res = Device{
 		DeviceID:  args.DeviceID,
 		Alias:     dev.Alias,
 		Model:     dev.Model,
@@ -135,11 +135,11 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 	return res, err
 }
 
-// A MapDevices is a map from [wire.DeviceID] to [MiotDevice]
+// A MapDevices is a map from [wire.DeviceID] to [Device]
 // designed to be used by code that needs to:
 //   - loop over all devices; or
 //   - access a device's state through its ID
-type MapDevices map[wire.DeviceID]MiotDevice
+type MapDevices map[wire.DeviceID]Device
 
 // TODO
 func validateDeviceConfig(c *config.Device) error {
@@ -260,7 +260,7 @@ func resolveDevice(ctx context.Context, args LoadArgs, dev string) (resolveDevic
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
 //
-// The lifecycle of a [MiotDevice] is as follows:
+// The lifecycle of a [Device] is as follows:
 //
 //	[config.Devices] loaded
 //	for each [config.Device]:
@@ -378,7 +378,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	// init devices in parallel
 	var wg sync.WaitGroup
 	type deviceInit struct {
-		Device MiotDevice
+		Device Device
 		Error  error
 	}
 	devices := make(chan deviceInit)
@@ -393,7 +393,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Device:   dev,
 		}
 		wg.Go(func() {
-			dev, err := newMiotDevice(initCtx, args)
+			dev, err := newDevice(initCtx, args)
 			devices <- deviceInit{
 				Device: dev,
 				Error:  err,

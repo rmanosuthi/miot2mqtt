@@ -9,7 +9,7 @@ type ActionKey struct {
 	Ref  config.SpecAction
 }
 
-// parseActions returns a map of [ActionKey]s for use by [MiotDevice].
+// parseActions returns a map of [ActionKey]s for use by [Device].
 func parseActions(spec *config.Spec) map[config.URN]ActionKey {
 	diid := ""
 

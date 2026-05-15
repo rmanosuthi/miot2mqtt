@@ -6,7 +6,7 @@
 //   - "Alias" is its user-facing name.
 //
 //   - "Urn" is its globally-unique identifier stored as a map key in
-//     [MiotDevice] to avoid collisions that would've been caused by
+//     [Device] to avoid collisions that would've been caused by
 //     using an alias.
 //
 //     See [config.SpecProp.Type].
@@ -17,7 +17,7 @@
 //   - "Key" is a type used to enforce type safety,
 //     access the correct property in get/set operations, and
 //     unwrap a set operation's return value.
-//     This is stored as a map value in [MiotDevice].
+//     This is stored as a map value in [Device].
 //
 //     See [prop.PropKey] and [prop.SetPropKey].
 //
@@ -53,7 +53,7 @@ import (
 // Response types can be assumed to have been checked, but the caller may still want to typecast them.
 //
 // Cancel ctx to abort the request.
-func (dev *MiotDevice) GetProperties(ctx context.Context, predicate func(config.URN, prop.PropKey) bool) (prop.GetPropsReq, error) {
+func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN, prop.PropKey) bool) (prop.GetPropsReq, error) {
 	req := make(prop.GetPropsReq)
 	for urn, propKey := range dev.Props {
 		if predicate(urn, propKey) {
@@ -72,7 +72,7 @@ func (dev *MiotDevice) GetProperties(ctx context.Context, predicate func(config.
 	return req, nil
 }
 
-func (dev *MiotDevice) getProperties(ctx context.Context, req prop.GetPropsReq) error {
+func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) error {
 	if dev.timeStart == nil {
 		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
 		return ErrDeviceUninit
@@ -146,7 +146,7 @@ func (dev *MiotDevice) getProperties(ctx context.Context, req prop.GetPropsReq) 
 	return nil
 }
 
-func (dev *MiotDevice) SetProperty(ctx context.Context, req prop.SetProp) error {
+func (dev *Device) SetProperty(ctx context.Context, req prop.SetProp) error {
 	keys := []prop.SetProp{req}
 	query, err := prop.MakeSetQuery(uint32(dev.DeviceID), slices.Values(keys))
 	if err != nil {
@@ -167,7 +167,7 @@ func (dev *MiotDevice) SetProperty(ctx context.Context, req prop.SetProp) error 
 	return nil
 }
 
-func (dev *MiotDevice) sendSetProps(ctx context.Context, query prop.RawQuery) ([]prop.ResponseEntry, error) {
+func (dev *Device) sendSetProps(ctx context.Context, query prop.RawQuery) ([]prop.ResponseEntry, error) {
 	var payload bytes.Buffer
 	jsonBytes, err := json.Marshal(query)
 	if err != nil {
@@ -222,7 +222,7 @@ func (dev *MiotDevice) sendSetProps(ctx context.Context, query prop.RawQuery) ([
 	return rprops, nil
 }
 
-func (dev *MiotDevice) SetProperties(ctx context.Context, req prop.SetPropsReq) error {
+func (dev *Device) SetProperties(ctx context.Context, req prop.SetPropsReq) error {
 	if dev.timeStart == nil {
 		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
 		return ErrDeviceUninit
