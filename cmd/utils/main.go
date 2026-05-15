@@ -121,7 +121,10 @@ func main() {
 			Hint: &config.SpecHint{
 				Model:   meta.Model,
 				Version: meta.Version,
-				URN:     &meta.Type,
+				Download: &config.SpecDownload{
+					URN:     meta.SpecURN,
+					Context: ctx,
+				},
 			},
 		}
 		err = config.Populate(&spec, a)
@@ -148,7 +151,7 @@ func main() {
 		for did, dev := range devices {
 			propCtx, cancel := context.WithTimeout(ctx, time.Second*5)
 			defer cancel()
-			props, err := dev.GetProperties(propCtx, func(urn config.Urn, key prop.PropKey) bool {
+			props, err := dev.GetProperties(propCtx, func(urn config.URN, key prop.PropKey) bool {
 				return key.SIID == 2
 			})
 			if err != nil {

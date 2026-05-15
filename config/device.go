@@ -10,6 +10,8 @@ import (
 type Devices map[string]Device
 
 func (devs *Devices) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
+	res := make(Devices)
+	*devs = res
 	return nil
 }
 

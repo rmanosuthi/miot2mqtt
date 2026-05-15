@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 type SpecID = uint16
@@ -21,14 +23,14 @@ const SpecUrl = "https://miot-spec.org/miot-spec-v2/instance?type="
 const SpecPath = "vendor/spec/"
 
 type Spec struct {
-	Type        Urn           `json:"type"`
+	Type        URN           `json:"type"`
 	Description string        `json:"description"`
 	Services    []SpecService `json:"services"`
 }
 
 type SpecService struct {
 	IID         SpecID       `json:"iid"`
-	Type        Urn          `json:"type"`
+	Type        URN          `json:"type"`
 	Description string       `json:"description"`
 	Properties  []SpecProp   `json:"properties,omitempty"`
 	Actions     []SpecAction `json:"actions,omitempty"`
@@ -42,10 +44,10 @@ func (s *SpecService) Name() string {
 type SpecProp struct {
 	IID SpecID `json:"iid"`
 	// Urn is renamed from "type" to better reflect what it is.
-	Urn         Urn      `json:"type"`
-	Description string   `json:"description"`
-	Format      string   `json:"format"`
-	Access      []string `json:"access"`
+	Urn         URN         `json:"type"`
+	Description string      `json:"description"`
+	Format      wire.MiType `json:"format"`
+	Access      []string    `json:"access"`
 	// only defined when an integer/floating point
 	ValueRange []json.Number `json:"value-range,omitempty"`
 	// integer only
@@ -66,7 +68,7 @@ func VList[T ~uint8 | ~uint16](s *SpecProp) iter.Seq2[T, SpecPropValue] {
 		for _, pv := range s.ValueList {
 			iv, err := pv.Value.Int64()
 			if err != nil {
-				// TODO warn
+				slog.Error("cannot convert spec value list element to int64", "val", pv.Value)
 				return
 			}
 			conv := T(iv)
@@ -84,7 +86,7 @@ type SpecPropValue struct {
 
 type SpecAction struct {
 	IID         SpecID   `json:"iid"`
-	Type        Urn      `json:"type"`
+	Type        URN      `json:"type"`
 	Description string   `json:"description"`
 	In          []string `json:"in"`
 	Out         []string `json:"out"`
@@ -92,7 +94,7 @@ type SpecAction struct {
 
 type SpecEvent struct {
 	IID         SpecID        `json:"iid"`
-	Type        Urn           `json:"type"`
+	Type        URN           `json:"type"`
 	Description string        `json:"description"`
 	Arguments   []json.Number `json:"arguments"`
 }
@@ -103,21 +105,26 @@ type specReq struct {
 	Error     error
 }
 
+type SpecDownload struct {
+	URN     URN
+	Context context.Context
+}
+
 type SpecHint struct {
-	Model   string
-	Version uint64
-	URN     *Urn
+	Model    string
+	Version  uint64
+	Download *SpecDownload
 }
 
 func (spec *Spec) Default(pfx *os.Root, gc *Global, hint *SpecHint) error {
-	if hint.Version == 0 || hint.URN == nil {
+	if hint.Version == 0 || hint.Download == nil {
 		return ErrNoSpecHint
 	}
 	if !gc.General.AllowExternalNetwork {
 		return ErrNoExtNet
 	}
 	slog.Info("downloading device spec", "model", hint.Model, "version", hint.Version)
-	return downloadSpec(context.TODO(), *hint.URN, spec)
+	return downloadSpec(hint.Download.Context, hint.Download.URN, spec)
 }
 
 func (spec *Spec) Suffix(hint *SpecHint) (string, error) {
@@ -141,7 +148,7 @@ func (spec *Spec) UnmarshalFunc(src []byte) error {
 	return err
 }
 
-func downloadSpec(ctx context.Context, urn Urn, spec *Spec) error {
+func downloadSpec(ctx context.Context, urn URN, spec *Spec) error {
 	ch := make(chan specReq)
 	url := SpecUrl + urn.String()
 	go func(ctx context.Context) {

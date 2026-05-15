@@ -2,12 +2,16 @@ package device
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,9 +49,9 @@ type MiotDevice struct {
 	Token wire.Token
 	// Spec resolved through [Metaspec].
 	Spec    config.Spec
-	Actions map[config.Urn]ActionKey
+	Actions map[config.URN]ActionKey
 	// Properties. See [Device Properties].
-	Props map[config.Urn]prop.PropKey
+	Props map[config.URN]prop.PropKey
 
 	dialer net.Dialer
 	// Devices have a second-precision timestamp with the epoch being
@@ -61,9 +65,10 @@ type MiotDevice struct {
 }
 
 type LoadArgs struct {
-	Prefix *os.Root
-	Global *config.Global
-	Strict bool
+	Prefix    *os.Root
+	Global    *config.Global
+	Strict    bool
+	AddDevice string
 }
 
 type miotDeviceArgs struct {
@@ -114,7 +119,6 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 		l.Debug("when timestamp=0 time was", "time", timeStart)
 	}
 
-	// TODO better verification
 	res = MiotDevice{
 		DeviceID:  args.DeviceID,
 		Alias:     dev.Alias,
@@ -136,12 +140,8 @@ func newMiotDevice(ctx context.Context, args miotDeviceArgs) (MiotDevice, error)
 //   - access a device's state through its ID
 type MapDevices map[wire.DeviceID]MiotDevice
 
+// TODO
 func validateDeviceConfig(c *config.Device) error {
-	if c.Model == "" {
-		slog.Warn("device model undefined, contacting it")
-		// TODO
-	}
-	// don't deal with Version yet, need metaspecs
 	return nil
 }
 
@@ -158,7 +158,7 @@ type intermediateDevice struct {
 
 type intermediateDevices map[wire.DeviceID]intermediateDevice
 
-func populateSpec(dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
+func populateSpec(ctx context.Context, dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
 	var spec config.Spec
 	// find matching metaspec
 	for _, metaspec := range metaspecs {
@@ -169,7 +169,10 @@ func populateSpec(dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) 
 				Hint: &config.SpecHint{
 					Model:   metaspec.Model,
 					Version: metaspec.Version,
-					URN:     &metaspec.Type,
+					Download: &config.SpecDownload{
+						URN:     metaspec.SpecURN,
+						Context: ctx,
+					},
 				},
 			}
 			err := config.Populate(&spec, args)
@@ -207,6 +210,51 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 	return res, nil
 }
 
+type resolveDeviceResult struct {
+	config.Device
+	DeviceID wire.DeviceID
+}
+
+func resolveDevice(ctx context.Context, args LoadArgs, dev string) (resolveDeviceResult, error) {
+	var res resolveDeviceResult
+	// expect form "ip,tokenhex"
+	segs := strings.Split(args.AddDevice, ",")
+	if len(segs) != 2 {
+		return res, fmt.Errorf("%w: wrong segment len %v", ErrDeviceInit, len(segs))
+	}
+
+	addr, err := netip.ParseAddr(segs[0])
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	var tokenBytes [16]byte
+	tokenLen, err := hex.Decode(tokenBytes[:], []byte(segs[1]))
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+	if tokenLen != wire.TokenLen {
+		return res, fmt.Errorf("%w: wrong token len %v", ErrDeviceInit, err)
+	}
+	token, err := wire.NewToken(tokenBytes)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	devInfo, err := ResolveFromIpToken(ctx, addr, token)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	res.IPAddr = addr
+	res.Model = devInfo.Model
+	res.Token = segs[1]
+	res.DeviceID = devInfo.DeviceID
+	res.Version = 1
+	res.Enabled = true
+	return res, nil
+}
+
 // LoadDevices loads devices' states from disk.
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
@@ -235,6 +283,29 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// are there new devices to be added too?
+	if args.AddDevice != "" {
+		dev, err := resolveDevice(ctx, args, args.AddDevice)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO don't default to Version 1
+		// TODO don't return a "device already exists" error so late
+		// workaround: backconvert did to string to
+		// fit into cfgDevices
+		didStr := strconv.Itoa(int(dev.DeviceID))
+		if _, ok := cfgDevices[didStr]; ok {
+			return nil, fmt.Errorf("device already defined in config!")
+		}
+		cfgDevices[didStr] = dev.Device
+		config.Flush(&cfgDevices, config.Args[config.NoHint]{
+			Prefix: args.Prefix,
+			Global: args.Global,
+			Hint:   nil,
+		})
+	}
 	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
 
 	devs, err := parseDevices(cfgDevices)
@@ -253,15 +324,17 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Global: args.Global,
 			Prefix: args.Prefix,
 			Hint: &config.SpecHint{
-				Model:   dev.Model,
-				Version: dev.Version,
+				Model:    dev.Model,
+				Version:  dev.Version,
+				Download: nil,
 			},
 		}
-		// TODO don't assume err means "file not found, so must populate"
 		err := config.Load(&spec, args)
-		if err != nil {
+		if err != nil && errors.Is(err, fs.ErrNotExist) {
 			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
 			deferredDevices[did] = dev
+		} else if err != nil {
+			return nil, err
 		} else {
 			deviceModels[did] = intermediateDevice{
 				Device: dev.Device,
@@ -275,20 +348,20 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	)
 
 	if len(deferredDevices) > 0 {
-		// load metaspecs
+		// populate metaspecs
 		var ms config.Metaspecs
 		msargs := config.Args[config.NoHint]{
 			Prefix: args.Prefix,
-			Global: nil,
+			Global: args.Global,
 			Hint:   nil,
 		}
 		err = config.Populate(&ms, msargs)
-		// TODO better message
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
 		}
+
 		for did, dev := range deferredDevices {
-			spec, err := populateSpec(dev, ms.Instances, args)
+			spec, err := populateSpec(ctx, dev, ms.Instances, args)
 			if err != nil {
 				return nil, err
 			}

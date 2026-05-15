@@ -140,7 +140,7 @@ func dig(ctx context.Context, args digArgs) (*Info, error) {
 		return nil, errors.Join(ErrDeviceDial, err)
 	}
 
-	conn, err := dialer.DialUDP(context.TODO(), "udp", netip.AddrPort{}, addr)
+	conn, err := dialer.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
 		return nil, errors.Join(ErrDeviceDial, err)
 	}
@@ -204,7 +204,7 @@ func ResolveDefaultMetaspec(
 
 func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort) (*wire.Pong, error) {
 	l := slog.Default().With("addr", &addr)
-	conn, err := d.DialUDP(context.TODO(), "udp", netip.AddrPort{}, addr)
+	conn, err := d.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
 		return nil, errors.Join(ErrDeviceDial, err)
 	}

@@ -24,7 +24,7 @@ type Global struct {
 
 func (cfg *Global) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 	cfg.General = General{
-		AllowExternalNetwork: false,
+		AllowExternalNetwork: true,
 	}
 	cfg.MQTT = MQTT{
 		Endpoint:         "tcp://127.0.0.1:1883",

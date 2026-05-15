@@ -14,14 +14,14 @@ import (
 
 func main() {
 	ctx := context.Background()
-	var pfxPath, mode, inputFile, msg string
+	var pfxPath, mode, inputFile, addDevice string
 	var verbose, save bool
 	flag.StringVar(&pfxPath, "P", "", "path to prefix")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.StringVar(&mode, "m", "", "operation mode")
 	flag.StringVar(&inputFile, "f", "", "input file")
 	flag.BoolVar(&save, "s", false, "save state")
-	flag.StringVar(&msg, "i", "", "arbitrary message")
+	flag.StringVar(&addDevice, "a", "", "new device info")
 	flag.Parse()
 
 	var logLevel slog.Level
@@ -67,9 +67,10 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 
 	devArgs := device.LoadArgs{
-		Prefix: pfx,
-		Global: &gc,
-		Strict: false,
+		Prefix:    pfx,
+		Global:    &gc,
+		Strict:    false,
+		AddDevice: addDevice,
 	}
 	devices, err := device.LoadDevices(ctx, devArgs)
 	if err != nil {

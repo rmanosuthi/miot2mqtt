@@ -1,13 +1,12 @@
 package prop
 
 import (
-	"errors"
+	"fmt"
 	"iter"
+	"reflect"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 )
-
-var ErrTypeMismatch = errors.New("type mismatch")
 
 type SetProp struct {
 	SetPropKey
@@ -15,7 +14,7 @@ type SetProp struct {
 	Error    error
 }
 
-type SetPropsReq = map[config.Urn]SetProp
+type SetPropsReq = map[config.URN]SetProp
 
 type SetPropKey struct {
 	*PropKey
@@ -23,14 +22,21 @@ type SetPropKey struct {
 }
 
 func NewSetProp[T any](key *PropKey, value T) (SetProp, error) {
-	res := SetProp{
-		SetPropKey: SetPropKey{
-			PropKey: key,
-			Value:   value,
-		},
+	expectedType := key.Ref.Format
+	foundType := reflect.TypeFor[T]()
+	if foundType == nil {
+		return SetProp{}, fmt.Errorf("set prop type nil")
 	}
-	// TODO check type
-	return res, nil
+	if expectedType.ConvertibleTo(foundType) {
+		return SetProp{
+			SetPropKey: SetPropKey{
+				PropKey: key,
+				Value:   value,
+			},
+		}, nil
+	} else {
+		return SetProp{}, fmt.Errorf("set prop type mismatch: expected %v, found %v", expectedType, foundType)
+	}
 }
 
 func MakeSetQuery(connId uint32, keys iter.Seq[SetProp]) (RawQuery, error) {

@@ -45,16 +45,22 @@ func (dev *FanDevice) handleCmdOn(ctx context.Context, fc *fancmp, ev Message, l
 	pl := string(ev.Message.Payload())
 	if pl == "ON" {
 		// on
-		req, _ := prop.NewSetProp(dev.On, true)
-		err := dev.SetProperty(ctx, req)
+		req, err := prop.NewSetProp(dev.On, true)
+		if err != nil {
+			return errors.Join(ErrFanOn, err)
+		}
+		err = dev.SetProperty(ctx, req)
 		if err != nil {
 			return errors.Join(ErrFanOn, err)
 		}
 		ev.Client.Publish(fc.StateTopic, 0, true, pl)
 	} else {
 		// off
-		req, _ := prop.NewSetProp(dev.On, false)
-		err := dev.SetProperty(ctx, req)
+		req, err := prop.NewSetProp(dev.On, false)
+		if err != nil {
+			return errors.Join(ErrFanOff, err)
+		}
+		err = dev.SetProperty(ctx, req)
 		if err != nil {
 			return errors.Join(ErrFanOff, err)
 		}
@@ -68,16 +74,22 @@ func (dev *FanDevice) handleCmdOscillate(ctx context.Context, fc *fancmp, ev Mes
 	pl := string(ev.Message.Payload())
 	if pl == "oscillate_on" {
 		// on
-		req, _ := prop.NewSetProp(dev.Oscillate, true)
-		err := dev.SetProperty(ctx, req)
+		req, err := prop.NewSetProp(dev.Oscillate, true)
+		if err != nil {
+			return errors.Join(ErrFanOscOn, err)
+		}
+		err = dev.SetProperty(ctx, req)
 		if err != nil {
 			return errors.Join(ErrFanOscOn, err)
 		}
 		ev.Client.Publish(fc.OscillationStateTopic, 0, true, pl)
 	} else {
 		// off
-		req, _ := prop.NewSetProp(dev.Oscillate, false)
-		err := dev.SetProperty(ctx, req)
+		req, err := prop.NewSetProp(dev.Oscillate, false)
+		if err != nil {
+			return errors.Join(ErrFanOscOff, err)
+		}
+		err = dev.SetProperty(ctx, req)
 		if err != nil {
 			return errors.Join(ErrFanOscOff, err)
 		}
@@ -93,7 +105,10 @@ func (dev *FanDevice) handleCmdSpeed(ctx context.Context, fc *fancmp, ev Message
 	if err != nil {
 		slog.Error("failed to parse per", "reason", err)
 	}
-	req, _ := prop.NewSetProp(dev.Percentage, fanSpeed)
+	req, err := prop.NewSetProp(dev.Percentage, fanSpeed)
+	if err != nil {
+		return errors.Join(ErrFanSpeed, err)
+	}
 	err = dev.SetProperty(ctx, req)
 	if err != nil {
 		return errors.Join(ErrFanSpeed, err)

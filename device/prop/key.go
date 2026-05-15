@@ -2,6 +2,7 @@ package prop
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
@@ -26,11 +27,10 @@ func (key *PropKey) Notify() bool {
 	return slices.Contains(key.Ref.Access, "notify")
 }
 
-func ParseFrom(spec *config.Spec) map[config.Urn]PropKey {
-	// TODO
+func ParseFrom(spec *config.Spec) map[config.URN]PropKey {
 	diid := ""
 
-	res := make(map[config.Urn]PropKey)
+	res := make(map[config.URN]PropKey)
 	for _, svc := range spec.Services {
 		siid := svc.IID
 		for _, prop := range svc.Properties {
@@ -55,8 +55,16 @@ func (key *PropKey) Unwrap(resp []ResponseEntry) (ResponseEntry, error) {
 		rsiid := rprop.SIID
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
-			// TODO check type but don't make generics painful?
-			return rprop, nil
+			expectedType := key.Ref.Format
+			foundType := reflect.TypeOf(rprop.Value)
+			if foundType == nil {
+				return rprop, nil
+			}
+			if expectedType.AssignableTo(foundType) {
+				return rprop, nil
+			} else {
+				return rprop, fmt.Errorf("key unwrap type mismatch: expected %v, found %v", expectedType.Name(), foundType.Name())
+			}
 		}
 	}
 	return ResponseEntry{}, fmt.Errorf("this key cannot unwrap this response")

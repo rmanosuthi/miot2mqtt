@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 var ErrPopulate = errors.New("failed to populate config")
@@ -103,6 +104,10 @@ func Load[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 		l.Debug("err read file")
 		return errors.Join(ErrLoad, err)
 	}
+	if buf.Len() == 0 {
+		l.Warn("file len is 0, this doesn't look right. try deleting the file.")
+	}
+
 	err = T.UnmarshalFunc(state, buf.Bytes())
 	if err != nil {
 		l.Debug("err UnmarshalFunc()")
@@ -138,8 +143,13 @@ func Populate[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 	gc := args.Global
 	hint := args.Hint
 
+	if err := pfx.MkdirAll(filepath.Dir(relPath), 0770); err != nil {
+		return errors.Join(ErrPopulate, err)
+	}
+
 	f, err := pfx.OpenFile(relPath, os.O_RDWR, 0o644)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
+
 		f, err := pfx.OpenFile(relPath, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0o644)
 		if err != nil {
 			l.Debug("err create file")
@@ -182,6 +192,10 @@ func Populate[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 			l.Debug("err read file")
 			return errors.Join(ErrPopulate, err)
 		}
+		if buf.Len() == 0 {
+			l.Warn("file len is 0, this doesn't look right. try deleting the file.")
+		}
+
 		err = T.UnmarshalFunc(state, buf.Bytes())
 		if err != nil {
 			l.Debug("err UnmarshalFunc()")
