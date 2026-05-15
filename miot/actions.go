@@ -1,4 +1,4 @@
-package device
+package miot
 
 import "github.com/rmanosuthi/miot2mqtt/config"
 

@@ -19,10 +19,10 @@ type Origin struct {
 
 // Base is a generic struct which devices may wrap to
 // form a discovery payload.
-type Base[C any] struct {
-	Device     Device       `json:"dev"`
-	Origin     Origin       `json:"o"`
-	Components map[string]C `json:"cmps"`
+type Base struct {
+	Device     Device `json:"dev"`
+	Origin     Origin `json:"o"`
+	Components any    `json:"cmps"`
 }
 
 // Base type for Component. Devices should wrap this.
@@ -41,8 +41,8 @@ func NewBaseCmp(did wire.DeviceID, cls string, alias string) BaseCmp {
 	}
 }
 
-func Topic(did wire.DeviceID, suffix string) string {
-	return fmt.Sprintf("%v/%v/%v", BaseTopic, did, suffix)
+func (bc *BaseCmp) Topic(did wire.DeviceID, suffix string) string {
+	return fmt.Sprintf("%v/%v/%v/%v", BaseTopic, did, bc.UniqueId, suffix)
 }
 
 func Ident(did wire.DeviceID) []string {

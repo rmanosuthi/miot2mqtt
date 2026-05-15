@@ -1,4 +1,4 @@
-package device
+package miot
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device/prop"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 

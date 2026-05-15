@@ -8,8 +8,8 @@ import (
 	"os/signal"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device"
 	"github.com/rmanosuthi/miot2mqtt/ha"
+	"github.com/rmanosuthi/miot2mqtt/miot"
 )
 
 func main() {
@@ -66,13 +66,13 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
-	devArgs := device.LoadArgs{
+	devArgs := miot.LoadArgs{
 		Prefix:    pfx,
 		Global:    &gc,
 		Strict:    false,
 		AddDevice: addDevice,
 	}
-	devices, err := device.LoadDevices(ctx, devArgs)
+	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {
 		slog.Error("failed to load devices", "reason", err)
 		os.Exit(1)

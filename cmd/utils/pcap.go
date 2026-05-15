@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
-	"github.com/rmanosuthi/miot2mqtt/device"
+
+	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	"github.com/google/gopacket"
@@ -12,7 +13,7 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-func replayPcap(mapDevices device.MapDevices, path string, verbose bool, relaxed bool) error {
+func replayPcap(mapDevices miot.MapDevices, path string, verbose bool, relaxed bool) error {
 	var direction rune
 	handle, err := pcap.OpenOffline(path)
 	if err != nil {

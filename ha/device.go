@@ -1,3 +1,14 @@
+// # Device Registration
+//
+// A device makes its presence known to Home Assistant through a Discovery message.
+// This message enumerates a device's type and its properties.
+//
+// Discovery messages are sent upon device initialization
+// on every program start to:
+//
+//	homeassistant/device/{Device.Ident()}/config
+//
+// See [discovery] for more info.
 package ha
 
 import (
@@ -7,11 +18,33 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/rmanosuthi/miot2mqtt/device"
+	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
+
+func matchClassHint(svc config.SpecService) bool {
+	return svc.IID == 2
+}
+
+type Message struct {
+	Client  mqtt.Client
+	Message mqtt.Message
+}
+
+func pipeTo(ch chan Message) mqtt.MessageHandler {
+	return func(c mqtt.Client, m mqtt.Message) {
+		select {
+		case ch <- Message{
+			Client:  c,
+			Message: m,
+		}:
+		default:
+		}
+	}
+}
 
 type ErrDevUnsupported struct {
 	did   wire.DeviceID
@@ -55,7 +88,7 @@ type Device interface {
 // reading SIID == [matchClassHint].
 //
 // On success, a concrete device is initialized.
-func InitDevice(md device.MiotDevice) (Device, error) {
+func InitDevice(md miot.MiotDevice) (Device, error) {
 	svcs := md.Spec.Services
 	idx := slices.IndexFunc(svcs, matchClassHint)
 	if idx == -1 {

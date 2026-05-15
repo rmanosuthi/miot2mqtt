@@ -24,7 +24,7 @@
 //   - "Spec" is a device's spec's service's properties.
 //
 //     See [config.SpecService.Properties].
-package device
+package miot
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device/prop"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 

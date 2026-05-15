@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device"
-	"github.com/rmanosuthi/miot2mqtt/device/prop"
 	"github.com/rmanosuthi/miot2mqtt/ha"
+	"github.com/rmanosuthi/miot2mqtt/miot"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -73,12 +73,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	devArgs := device.LoadArgs{
+	devArgs := miot.LoadArgs{
 		Prefix: pfx,
 		Global: gc,
 		Strict: false,
 	}
-	devices, err := device.LoadDevices(ctx, devArgs)
+	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {
 		slog.Error("failed to load devices", "reason", err)
 		os.Exit(1)
@@ -92,7 +92,7 @@ func main() {
 		hex.Decode(tokenBytes[:], []byte(args[1]))
 		token, _ := wire.NewToken(tokenBytes)
 
-		info, err := device.ResolveFromIpToken(context.TODO(), addr, token)
+		info, err := miot.ResolveFromIpToken(context.TODO(), addr, token)
 		if err != nil {
 			slog.Error("failed to add device", "reason", err)
 			os.Exit(1)
@@ -100,7 +100,7 @@ func main() {
 		fmt.Printf("%v\n", info)
 
 		metaspecs := slices.Values(ms.Instances)
-		meta, err := device.ResolveDefaultMetaspec(info.Model, metaspecs, func(a config.Metaspec, b config.Metaspec) int {
+		meta, err := miot.ResolveDefaultMetaspec(info.Model, metaspecs, func(a config.Metaspec, b config.Metaspec) int {
 			if a.Version < b.Version {
 				return -1
 			} else if a.Version > b.Version {

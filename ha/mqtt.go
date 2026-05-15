@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/device"
+	"github.com/rmanosuthi/miot2mqtt/miot"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
@@ -60,7 +60,7 @@ func NewConnection(
 }
 
 type HaConsume struct {
-	DeviceMap device.MapDevices
+	DeviceMap miot.MapDevices
 }
 
 func (conn HaConn) Consume(ctx context.Context, cs HaConsume) error {
