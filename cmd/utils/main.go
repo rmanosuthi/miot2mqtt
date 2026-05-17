@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
-	"github.com/rmanosuthi/miot2mqtt/ha"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
@@ -189,7 +188,7 @@ func main() {
 			}
 		}*/
 	case "hareg":
-		for did, dev := range devices {
+		/*for did, dev := range devices {
 			hdev, err := ha.InitDevice(dev)
 			if err != nil {
 				slog.Error("ha init fail", "reason", err)
@@ -201,7 +200,7 @@ func main() {
 				continue
 			}
 			fmt.Printf("%v: %v\n", did, string(jb))
-		}
+		}*/
 	default:
 		slog.Error("unrecognized mode", "mode", mode)
 		os.Exit(1)

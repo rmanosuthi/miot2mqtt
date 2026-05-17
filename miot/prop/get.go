@@ -5,7 +5,7 @@ type GetProp struct {
 	Error    error
 }
 
-type GetPropsReq = map[PropKey]GetProp
+type GetPropsReq = map[PropKey]*GetProp
 
 // Puts keys in req into the wire format struct.
 func MakeGetQuery(connId uint32, req GetPropsReq) (RawQuery, error) {

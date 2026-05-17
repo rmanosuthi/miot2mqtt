@@ -19,6 +19,7 @@ type MQTT struct {
 	Username         string
 	Password         string
 	KeepAliveSeconds uint16
+	ForceDiscovery   bool
 }
 
 // Global is the config.toml file.
@@ -36,6 +37,7 @@ func (cfg *Global) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 		Username:         "username",
 		Password:         "password",
 		KeepAliveSeconds: 5,
+		ForceDiscovery:   false,
 	}
 	return nil
 }

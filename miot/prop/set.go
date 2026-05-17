@@ -14,7 +14,7 @@ type SetProp struct {
 	Value    any
 }
 
-type SetPropsReq = map[PropKey]SetProp
+type SetPropsReq = map[PropKey]*SetProp
 
 func NewSetProp[T any](spec config.SpecProp, value T) (SetProp, error) {
 	expectedType := spec.Format
@@ -31,7 +31,7 @@ func NewSetProp[T any](spec config.SpecProp, value T) (SetProp, error) {
 	}
 }
 
-func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, SetProp]) (RawQuery, error) {
+func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, *SetProp]) (RawQuery, error) {
 	var props []QueryEntry
 	for key, setProp := range keys {
 		props = append(props, QueryEntry{
