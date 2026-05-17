@@ -47,11 +47,19 @@ type Device struct {
 	Addr netip.AddrPort
 	// Encryption and decryption object.
 	Token wire.Token
-	// Spec resolved through [Metaspec].
-	Spec    config.Spec
-	Actions map[config.URN]ActionKey
-	// Properties. See [Device Properties].
-	Props map[config.URN]prop.PropKey
+
+	// Map from SIID to Service.
+	Services Services
+
+	// Map from URN to [ActionKey].
+	ActionKeys ActionKeys
+	// Map from [ActionKey] to [SpecAction].
+	Actions Actions
+
+	// Map from URN to [PropKey].
+	PropKeys prop.PropKeys
+	// Map from [PropKey] to [SpecProp]. See [Device Properties].
+	Props prop.Props
 
 	dialer net.Dialer
 	// Devices have a second-precision timestamp with the epoch being
@@ -97,9 +105,11 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 		return res, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	actions := parseActions(spec)
+	services := parseServices(spec)
+	l.Debug("parsed services")
+	actionKeys, actions := parseActions(spec)
 	l.Debug("parsed actions")
-	props := prop.ParseFrom(spec)
+	propKeys, props := prop.Parse(spec)
 	l.Debug("parsed props")
 
 	// embed port
@@ -121,16 +131,18 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	}
 
 	res = Device{
-		DeviceID:  args.DeviceID,
-		Alias:     dev.Alias,
-		Model:     dev.Model,
-		Addr:      addrPort,
-		Token:     token,
-		Spec:      *spec,
-		Actions:   actions,
-		Props:     props,
-		dialer:    dialer,
-		timeStart: timeStart,
+		DeviceID:   args.DeviceID,
+		Alias:      dev.Alias,
+		Model:      dev.Model,
+		Addr:       addrPort,
+		Token:      token,
+		Services:   services,
+		ActionKeys: actionKeys,
+		Actions:    actions,
+		PropKeys:   propKeys,
+		Props:      props,
+		dialer:     dialer,
+		timeStart:  timeStart,
 	}
 	return res, err
 }
@@ -400,6 +412,9 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			}
 		})
 	}
+	// devices is an unbuffered channel and
+	// will block the above goroutine if we don't
+	// drain it from below
 	go func() {
 		wg.Wait()
 		close(devices)

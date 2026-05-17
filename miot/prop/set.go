@@ -9,44 +9,36 @@ import (
 )
 
 type SetProp struct {
-	SetPropKey
 	Response ResponseEntry
 	Error    error
+	Value    any
 }
 
-type SetPropsReq = map[config.URN]SetProp
+type SetPropsReq = map[PropKey]SetProp
 
-type SetPropKey struct {
-	*PropKey
-	Value any
-}
-
-func NewSetProp[T any](key *PropKey, value T) (SetProp, error) {
-	expectedType := key.Ref.Format
+func NewSetProp[T any](spec config.SpecProp, value T) (SetProp, error) {
+	expectedType := spec.Format
 	foundType := reflect.TypeFor[T]()
 	if foundType == nil {
 		return SetProp{}, fmt.Errorf("set prop type nil")
 	}
 	if expectedType.ConvertibleTo(foundType) {
 		return SetProp{
-			SetPropKey: SetPropKey{
-				PropKey: key,
-				Value:   value,
-			},
+			Value: value,
 		}, nil
 	} else {
 		return SetProp{}, fmt.Errorf("set prop type mismatch: expected %v, found %v", expectedType, foundType)
 	}
 }
 
-func MakeSetQuery(connId uint32, keys iter.Seq[SetProp]) (RawQuery, error) {
+func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, SetProp]) (RawQuery, error) {
 	var props []QueryEntry
-	for key := range keys {
+	for key, setProp := range keys {
 		props = append(props, QueryEntry{
 			DID:   key.DID,
 			SIID:  key.SIID,
 			PIID:  key.PIID,
-			Value: key.Value,
+			Value: setProp.Value,
 		})
 	}
 	query := RawQuery{

@@ -36,7 +36,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/netip"
-	"slices"
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
@@ -55,12 +54,10 @@ import (
 // Cancel ctx to abort the request.
 func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN, prop.PropKey) bool) (prop.GetPropsReq, error) {
 	req := make(prop.GetPropsReq)
-	for urn, propKey := range dev.Props {
+	for urn, propKey := range dev.PropKeys {
 		if predicate(urn, propKey) {
 			slog.Debug("GetProperties", "urn", urn)
-			req[urn] = prop.GetProp{
-				PropKey: propKey,
-			}
+			req[propKey] = prop.GetProp{}
 		}
 	}
 
@@ -135,9 +132,8 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 		return err
 	}
 
-	for _, prop := range req {
-		key := prop.PropKey
-		resp, err := key.Unwrap(rprops)
+	for key, prop := range req {
+		resp, err := key.Unwrap(dev.Props[key], rprops)
 		if err != nil {
 			return errors.Join(ErrDeviceRecv, err)
 		}
@@ -146,9 +142,20 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	return nil
 }
 
-func (dev *Device) SetProperty(ctx context.Context, req prop.SetProp) error {
-	keys := []prop.SetProp{req}
-	query, err := prop.MakeSetQuery(uint32(dev.DeviceID), slices.Values(keys))
+func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req prop.SetProp) error {
+	return dev.setProperties(ctx, prop.SetPropsReq{
+		key: req,
+	})
+}
+
+func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) error {
+	if dev.timeStart == nil {
+		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
+		return ErrDeviceUninit
+	}
+
+	connId := rand.Uint32()
+	query, err := prop.MakeSetQuery(connId, maps.All(req))
 	if err != nil {
 		return err
 	}
@@ -158,12 +165,14 @@ func (dev *Device) SetProperty(ctx context.Context, req prop.SetProp) error {
 		return err
 	}
 
-	resp, err := req.Unwrap(rprops)
-	if err != nil {
-		return errors.Join(ErrDeviceRecv, err)
+	for key, setProp := range req {
+		resp, err := key.Unwrap(dev.Props[key], rprops)
+		if err != nil {
+			return errors.Join(ErrDeviceRecv, err)
+		}
+		setProp.Response = resp
 	}
 
-	req.Response = resp
 	return nil
 }
 
@@ -220,30 +229,4 @@ func (dev *Device) sendSetProps(ctx context.Context, query prop.RawQuery) ([]pro
 	}
 
 	return rprops, nil
-}
-
-func (dev *Device) SetProperties(ctx context.Context, req prop.SetPropsReq) error {
-	if dev.timeStart == nil {
-		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
-		return ErrDeviceUninit
-	}
-	connId := rand.Uint32()
-	query, err := prop.MakeSetQuery(connId, maps.Values(req))
-	if err != nil {
-		return err
-	}
-
-	rprops, err := dev.sendSetProps(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	for _, key := range req {
-		resp, err := key.Unwrap(rprops)
-		if err != nil {
-			return errors.Join(ErrDeviceRecv, err)
-		}
-		key.Response = resp
-	}
-	return nil
 }

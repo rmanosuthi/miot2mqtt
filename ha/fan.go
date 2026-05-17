@@ -51,22 +51,22 @@ func (dev *FanDevice) handleCmdOn(ctx context.Context, fc *fanComponentFan, ev M
 	pl := string(ev.Message.Payload())
 	if pl == "ON" {
 		// on
-		req, err := prop.NewSetProp(dev.On, true)
+		req, err := prop.NewSetProp(dev.Props[*dev.On], true)
 		if err != nil {
 			return errors.Join(ErrFanOn, err)
 		}
-		err = dev.SetProperty(ctx, req)
+		err = dev.SetProperty(ctx, *dev.On, req)
 		if err != nil {
 			return errors.Join(ErrFanOn, err)
 		}
 		ev.Client.Publish(fc.StateTopic, 0, true, pl)
 	} else {
 		// off
-		req, err := prop.NewSetProp(dev.On, false)
+		req, err := prop.NewSetProp(dev.Props[*dev.On], false)
 		if err != nil {
 			return errors.Join(ErrFanOff, err)
 		}
-		err = dev.SetProperty(ctx, req)
+		err = dev.SetProperty(ctx, *dev.On, req)
 		if err != nil {
 			return errors.Join(ErrFanOff, err)
 		}
@@ -77,25 +77,26 @@ func (dev *FanDevice) handleCmdOn(ctx context.Context, fc *fanComponentFan, ev M
 
 func (dev *FanDevice) handleCmdOscillate(ctx context.Context, fc *fanComponentFan, ev Message, l *slog.Logger) error {
 	l.Debug("osc")
+	key := *dev.Oscillate
 	pl := string(ev.Message.Payload())
 	if pl == "oscillate_on" {
 		// on
-		req, err := prop.NewSetProp(dev.Oscillate, true)
+		req, err := prop.NewSetProp(dev.Props[key], true)
 		if err != nil {
 			return errors.Join(ErrFanOscOn, err)
 		}
-		err = dev.SetProperty(ctx, req)
+		err = dev.SetProperty(ctx, key, req)
 		if err != nil {
 			return errors.Join(ErrFanOscOn, err)
 		}
 		ev.Client.Publish(fc.OscillationStateTopic, 0, true, pl)
 	} else {
 		// off
-		req, err := prop.NewSetProp(dev.Oscillate, false)
+		req, err := prop.NewSetProp(dev.Props[key], false)
 		if err != nil {
 			return errors.Join(ErrFanOscOff, err)
 		}
-		err = dev.SetProperty(ctx, req)
+		err = dev.SetProperty(ctx, key, req)
 		if err != nil {
 			return errors.Join(ErrFanOscOff, err)
 		}
@@ -106,16 +107,17 @@ func (dev *FanDevice) handleCmdOscillate(ctx context.Context, fc *fanComponentFa
 
 func (dev *FanDevice) handleCmdSpeed(ctx context.Context, fc *fanComponentFan, ev Message, l *slog.Logger) error {
 	l.Debug("per")
+	key := *dev.Percentage
 	pl := string(ev.Message.Payload())
 	fanSpeed, err := strconv.Atoi(pl)
 	if err != nil {
 		slog.Error("failed to parse per", "reason", err)
 	}
-	req, err := prop.NewSetProp(dev.Percentage, fanSpeed)
+	req, err := prop.NewSetProp(dev.Props[key], fanSpeed)
 	if err != nil {
 		return errors.Join(ErrFanSpeed, err)
 	}
-	err = dev.SetProperty(ctx, req)
+	err = dev.SetProperty(ctx, key, req)
 	if err != nil {
 		return errors.Join(ErrFanSpeed, err)
 	}
@@ -184,11 +186,12 @@ func (dev *FanDevice) Subscribe(ctx context.Context, logger *slog.Logger, c mqtt
 				l.Error("handler failed", "reason", "horizontal angle out of range")
 			}
 
-			req, err := prop.NewSetProp(dev.FanCaps.HorizontalAngle, val)
+			key := *dev.FanCaps.HorizontalAngle
+			req, err := prop.NewSetProp(dev.Props[key], val)
 			if err != nil {
 				l.Error("handler failed", "reason", err)
 			}
-			if err := dev.SetProperty(cmdCtx, req); err != nil {
+			if err := dev.SetProperty(cmdCtx, key, req); err != nil {
 				l.Error("handler failed", "reason", err)
 			}
 			ev.Client.Publish(dev.horzAngleCmp.StateTopic, 0, false, val)
@@ -291,8 +294,8 @@ type FanCaps struct {
 func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 	var caps FanCaps
 
-	for _, key := range dev.Props {
-		switch key.Ref.Name() {
+	for key, prop := range dev.Props {
+		switch prop.Name() {
 		case "on":
 			caps.On = &key
 		case "horizontal-swing":
@@ -301,12 +304,12 @@ func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 			caps.VerticalSwing = &key
 		case "fan-level":
 			caps.Percentage = &key
-			if len(key.Ref.ValueList) == 0 {
+			if len(prop.ValueList) == 0 {
 				return caps, ErrFanInit
 			}
 			var minVal uint8 = math.MaxUint8
 			var maxVal uint8 = 0
-			for val := range config.VList[uint8](&key.Ref) {
+			for val := range config.VList[uint8](&prop) {
 				if val < minVal {
 					minVal = val
 				} else if val > maxVal {
@@ -316,12 +319,12 @@ func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 			caps.PercentageMin = minVal
 			caps.PercentageMax = maxVal
 		case "horizontal-angle":
-			if len(key.Ref.ValueRange) < 2 {
+			if len(prop.ValueRange) < 2 {
 				return caps, ErrFanInit
 			}
 			var minVal uint16 = math.MaxUint16
 			var maxVal uint16 = 0
-			for _, jsonVal := range key.Ref.ValueRange {
+			for _, jsonVal := range prop.ValueRange {
 				iv, err := jsonVal.Int64()
 				if err != nil {
 					return caps, ErrFanInit
@@ -338,12 +341,12 @@ func GetFanCaps(dev *miot.Device) (FanCaps, error) {
 			caps.HorizontalMin = minVal
 			caps.HorizontalMax = maxVal
 		case "vertical-angle":
-			if len(key.Ref.ValueRange) < 2 {
+			if len(prop.ValueRange) < 2 {
 				return caps, ErrFanInit
 			}
 			var minVal uint8 = math.MaxUint8
 			var maxVal uint8 = 0
-			for _, jsonVal := range key.Ref.ValueRange {
+			for _, jsonVal := range prop.ValueRange {
 				iv, err := jsonVal.Int64()
 				if err != nil {
 					return caps, ErrFanInit

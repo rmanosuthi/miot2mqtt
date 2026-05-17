@@ -16,18 +16,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 
-	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-func matchClassHint(svc config.SpecService) bool {
-	return svc.IID == 2
-}
+var ErrDevNoHint = errors.New("device has no class hint in spec")
+
+const IdxClassHint = 2
 
 type Message struct {
 	Client  mqtt.Client
@@ -89,19 +87,19 @@ type Device interface {
 //
 // On success, a concrete device is initialized.
 func InitDevice(md miot.Device) (Device, error) {
-	svcs := md.Spec.Services
-	idx := slices.IndexFunc(svcs, matchClassHint)
-	if idx == -1 {
-		return nil, fmt.Errorf("failed to get service class")
+	svc, ok := md.Services[IdxClassHint]
+	if !ok {
+		return nil, ErrDevNoHint
 	}
-	switch svcs[idx].Name() {
+	svcName := svc.Type.Name.Value()
+	switch svcName {
 	case "fan":
 		return NewFanDevice(md)
 	default:
 		return nil, errors.Join(errors.ErrUnsupported, ErrDevUnsupported{
 			did:   md.DeviceID,
 			model: md.Model,
-			cls:   svcs[idx].Name(),
+			cls:   svcName,
 		})
 	}
 }
