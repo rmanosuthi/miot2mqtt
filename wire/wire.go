@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"time"
 )
 
@@ -52,6 +53,13 @@ var ErrHashMismatch = errors.New("hash mismatch")
 // DeviceID is a 32-bit unsigned integer identifying a device.
 // It is used when assembling a packet.
 type DeviceID uint32
+
+func (did DeviceID) String() string {
+	return strconv.FormatUint(
+		uint64(did),
+		10,
+	)
+}
 
 // Timestamp is a 32-bit unsigned integer with its epoch being
 // whenever the device was last reset or turned on.

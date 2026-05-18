@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/rmanosuthi/miot2mqtt/wire"
@@ -61,6 +62,14 @@ type SpecProp struct {
 
 func (s *SpecProp) Name() string {
 	return s.Urn.Name.Value()
+}
+
+func (s *SpecProp) Read() bool {
+	return slices.Contains(s.Access, "read")
+}
+
+func (s *SpecProp) Write() bool {
+	return slices.Contains(s.Access, "write")
 }
 
 func VList[T ~uint8 | ~uint16](s *SpecProp) iter.Seq2[T, SpecPropValue] {

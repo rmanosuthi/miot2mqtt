@@ -72,6 +72,19 @@ type Device struct {
 	timeStart *time.Time
 }
 
+// PropName tries to find a [config.SpecProp] associated with
+// the URN with a Name of n.
+// Meant to be used by HA.
+func (dev *Device) PropName(n string) (config.SpecProp, bool) {
+	for urn, key := range dev.PropKeys {
+		if urn.Name.Value() == n {
+			res, ok := dev.Props[key]
+			return res, ok
+		}
+	}
+	return config.SpecProp{}, false
+}
+
 type LoadArgs struct {
 	Prefix    *os.Root
 	Global    *config.Global
