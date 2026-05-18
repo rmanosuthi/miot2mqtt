@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha"
@@ -14,14 +15,14 @@ import (
 
 func main() {
 	ctx := context.Background()
-	var pfxPath, mode, inputFile, addDevice string
+	var pfxPath, mode, inputFile, addDevices string
 	var verbose, save bool
 	flag.StringVar(&pfxPath, "P", "", "path to prefix")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.StringVar(&mode, "m", "", "operation mode")
 	flag.StringVar(&inputFile, "f", "", "input file")
 	flag.BoolVar(&save, "s", false, "save state")
-	flag.StringVar(&addDevice, "a", "", "new device info")
+	flag.StringVar(&addDevices, "a", "", "new device info (format: ipaddr1,token1,ipaddr2,token2,...)")
 	flag.Parse()
 
 	var logLevel slog.Level
@@ -51,7 +52,7 @@ func main() {
 		Global: nil,
 		Hint:   nil,
 	}
-	err = config.Populate(&gc, args)
+	err = config.Populate(&gc, args, l)
 	if err != nil {
 		slog.Error("failed to populate config", "reason", err)
 		os.Exit(1)
@@ -66,11 +67,27 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
+	var addDevs []miot.AddDeviceRequest
+	if addDevices != "" {
+		splitAddDevs := strings.Split(addDevices, ",")
+		if len(splitAddDevs)%2 != 0 {
+			slog.Error("invalid format for -a")
+			os.Exit(1)
+		}
+		for i := range len(splitAddDevs) / 2 {
+			addDevs = append(addDevs, miot.AddDeviceRequest{
+				IPAddr: splitAddDevs[i],
+				Token:  splitAddDevs[i+1],
+			})
+		}
+	}
+
 	devArgs := miot.LoadArgs{
-		Prefix:    pfx,
-		Global:    &gc,
-		Strict:    false,
-		AddDevice: addDevice,
+		Prefix:     pfx,
+		Global:     &gc,
+		Strict:     false,
+		AddDevices: addDevs,
+		Logger:     l,
 	}
 	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {

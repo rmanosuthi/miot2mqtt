@@ -25,6 +25,8 @@ type NoHint struct{}
 // Some configs may need dynamic path or resource fetching.
 // H will be passed to Default() and Suffix().
 // Declare H as NoHint when not needed.
+type NonVolatile[T any, H any] = nonVolatile[T, H]
+
 type nonVolatile[T any, H any] interface {
 	// Default is called when a file doesn't exist.
 	Default(*os.Root, *Global, *H) error
@@ -43,12 +45,14 @@ type Args[H any] struct {
 	Hint   *H
 }
 
-func Flush[T nonVolatile[T, H], H any](state T, args Args[H]) error {
+// Flush marshals state and saves it to disk.
+// It expects parent folders to already exist.
+func Flush[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Logger) error {
 	relPath, err := T.Suffix(state, args.Hint)
 	if err != nil {
 		return errors.Join(ErrFlush, err)
 	}
-	l := slog.Default().With("op", "flush", "path", relPath)
+	l := logger.With("operation", "flush", "path", relPath)
 
 	pfx := args.Prefix
 
@@ -82,12 +86,12 @@ func Flush[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 
 // Load only loads and parses an on-disk copy of state.
 // It will fail otherwise.
-func Load[T nonVolatile[T, H], H any](state T, args Args[H]) error {
+func Load[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Logger) error {
 	relPath, err := T.Suffix(state, args.Hint)
 	if err != nil {
 		return errors.Join(ErrLoad, err)
 	}
-	l := slog.Default().With("path", relPath)
+	l := logger.With("operation", "load", "path", relPath)
 
 	pfx := args.Prefix
 
@@ -132,12 +136,12 @@ func Load[T nonVolatile[T, H], H any](state T, args Args[H]) error {
 //
 // hint must be passed into the function.
 // It may or may not be used depending on state's implementation.
-func Populate[T nonVolatile[T, H], H any](state T, args Args[H]) error {
+func Populate[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Logger) error {
 	relPath, err := T.Suffix(state, args.Hint)
 	if err != nil {
 		return errors.Join(ErrPopulate, err)
 	}
-	l := slog.Default().With("path", relPath)
+	l := logger.With("operation", "populate", "path", relPath)
 
 	pfx := args.Prefix
 	gc := args.Global

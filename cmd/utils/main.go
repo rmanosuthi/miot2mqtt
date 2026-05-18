@@ -38,7 +38,8 @@ func main() {
 		logLevel = slog.LevelInfo
 	}
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
-	slog.SetDefault(slog.New(h))
+	l := slog.New(h)
+	slog.SetDefault(l)
 
 	if pfxPath == "" {
 		slog.Error("missing prefix path")
@@ -60,14 +61,14 @@ func main() {
 		Global: nil,
 		Hint:   nil,
 	}
-	err = config.Populate(gc, globalArgs)
+	err = config.Populate(gc, globalArgs, l)
 	if err != nil {
 		slog.Error("failed to populate config", "reason", err)
 		os.Exit(1)
 	}
 
 	var ms config.Metaspecs
-	err = config.Populate(&ms, globalArgs)
+	err = config.Populate(&ms, globalArgs, l)
 	if err != nil {
 		slog.Error("failed to populate metaspecs", "reason", err)
 		os.Exit(1)
@@ -77,6 +78,7 @@ func main() {
 		Prefix: pfx,
 		Global: gc,
 		Strict: false,
+		Logger: l,
 	}
 	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {
@@ -92,7 +94,7 @@ func main() {
 		hex.Decode(tokenBytes[:], []byte(args[1]))
 		token, _ := wire.NewToken(tokenBytes)
 
-		info, err := miot.ResolveFromIpToken(context.TODO(), addr, token)
+		info, err := miot.ResolveFromIPToken(context.TODO(), addr, token, l)
 		if err != nil {
 			slog.Error("failed to add device", "reason", err)
 			os.Exit(1)
@@ -127,7 +129,7 @@ func main() {
 				},
 			},
 		}
-		err = config.Populate(&spec, a)
+		err = config.Populate(&spec, a, l)
 		if err != nil {
 			slog.Error("populate", "reason", err)
 			os.Exit(1)

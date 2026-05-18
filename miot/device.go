@@ -2,7 +2,6 @@ package miot
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,16 +24,19 @@ var ErrDeviceSend = errors.New("failed to send to device")
 var ErrDeviceRecv = errors.New("failed to receive from device")
 var ErrDevicePing = errors.New("failed to ping device")
 var ErrDeviceUninit = errors.New("device not initialized")
+var ErrDeviceAdd = errors.New("failed to add device")
 
 // A Device is a low-level representation of a device.
 // All populated fields suffice to issue commands to one.
-//
 // The high-level equivalent is in [ha.Device].
 //
 // Initialization from outside this package can only be done through [LoadDevices]
 // which operates on all devices defined in [config.Devices].
+// See [newDevice] for internal initialization.
 //
-// See [newMiotDevice] for internal initialization.
+// Do not assume an initialized Device can always be communicated with.
+// Certain devices restart themselves after some time if they cannot reach the cloud,
+// and their timestamp epoch will need to be queried again.
 type Device struct {
 	// Device identifier.
 	DeviceID wire.DeviceID
@@ -69,7 +70,11 @@ type Device struct {
 	// from our perspective, used for generating proper timestamps.
 	// The value is nil when a device couldn't be reached during
 	// initialization.
+	//
+	// Methods that call the device must check for timeStart's nilness.
 	timeStart *time.Time
+	// Device-scope logger.
+	l *slog.Logger
 }
 
 // PropName tries to find a [config.SpecProp] associated with
@@ -86,10 +91,20 @@ func (dev *Device) PropName(n string) (config.SpecProp, bool) {
 }
 
 type LoadArgs struct {
-	Prefix    *os.Root
-	Global    *config.Global
-	Strict    bool
-	AddDevice string
+	// Where the prefix given by -P is.
+	Prefix *os.Root
+	// Global config.
+	Global *config.Global
+	// When Strict, device initialization will fail if
+	// it does not respond to a ping.
+	// This effectively guarantees [Device.timestamp] will not be nil upon initialization,
+	// but does not guarantee it will always be up-to-date.
+	Strict bool
+	// Devices to be added on [LoadDevices].
+	// Successfully added devices will be committed to the config file.
+	AddDevices []AddDeviceRequest
+	// Logger to be used during load.
+	Logger *slog.Logger
 }
 
 type miotDeviceArgs struct {
@@ -97,6 +112,7 @@ type miotDeviceArgs struct {
 	Prefix   *os.Root
 	Global   *config.Global
 	Device   intermediateDevice
+	Logger   *slog.Logger
 }
 
 // newDevice initializes a MiotDevice.
@@ -109,7 +125,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	// but keep it simple instead of special casing it
 	dev := &args.Device
 	spec := &dev.Spec
-	l := slog.Default().With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr, "model", dev.Model)
+	l := args.Logger.With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr, "model", dev.Model)
 
 	// is the token valid?
 	token := wire.Token{}
@@ -133,7 +149,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	var dialer net.Dialer
 	pingCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	pong, err := ping(pingCtx, &dialer, addrPort)
+	pong, err := ping(pingCtx, &dialer, addrPort, args.Logger)
 	if err != nil {
 		l.Warn("device unreachable", "reason", err)
 		err = errors.Join(ErrDevicePing, err)
@@ -156,6 +172,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 		Props:      props,
 		dialer:     dialer,
 		timeStart:  timeStart,
+		l:          l,
 	}
 	return res, err
 }
@@ -184,12 +201,15 @@ type intermediateDevice struct {
 
 type intermediateDevices map[wire.DeviceID]intermediateDevice
 
-func populateSpec(ctx context.Context, dev parsedDevice, metaspecs []config.Metaspec, args LoadArgs) (config.Spec, error) {
+func populateSpec(
+	ctx context.Context, dev parsedDevice,
+	metaspecs []config.Metaspec, args LoadArgs,
+) (config.Spec, error) {
 	var spec config.Spec
 	// find matching metaspec
 	for _, metaspec := range metaspecs {
 		if metaspec.Model == dev.Model && metaspec.Version == dev.Version {
-			args := config.Args[config.SpecHint]{
+			popArgs := config.Args[config.SpecHint]{
 				Prefix: args.Prefix,
 				Global: args.Global,
 				Hint: &config.SpecHint{
@@ -201,7 +221,7 @@ func populateSpec(ctx context.Context, dev parsedDevice, metaspecs []config.Meta
 					},
 				},
 			}
-			err := config.Populate(&spec, args)
+			err := config.Populate(&spec, popArgs, args.Logger)
 			return spec, err
 		}
 	}
@@ -236,51 +256,6 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 	return res, nil
 }
 
-type resolveDeviceResult struct {
-	config.Device
-	DeviceID wire.DeviceID
-}
-
-func resolveDevice(ctx context.Context, args LoadArgs, dev string) (resolveDeviceResult, error) {
-	var res resolveDeviceResult
-	// expect form "ip,tokenhex"
-	segs := strings.Split(args.AddDevice, ",")
-	if len(segs) != 2 {
-		return res, fmt.Errorf("%w: wrong segment len %v", ErrDeviceInit, len(segs))
-	}
-
-	addr, err := netip.ParseAddr(segs[0])
-	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
-	}
-
-	var tokenBytes [16]byte
-	tokenLen, err := hex.Decode(tokenBytes[:], []byte(segs[1]))
-	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
-	}
-	if tokenLen != wire.TokenLen {
-		return res, fmt.Errorf("%w: wrong token len %v", ErrDeviceInit, err)
-	}
-	token, err := wire.NewToken(tokenBytes)
-	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
-	}
-
-	devInfo, err := ResolveFromIpToken(ctx, addr, token)
-	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
-	}
-
-	res.IPAddr = addr
-	res.Model = devInfo.Model
-	res.Token = segs[1]
-	res.DeviceID = devInfo.DeviceID
-	res.Version = 1
-	res.Enabled = true
-	return res, nil
-}
-
 // LoadDevices loads devices' states from disk.
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
@@ -298,39 +273,44 @@ func resolveDevice(ctx context.Context, args LoadArgs, dev string) (resolveDevic
 //	 - populate spec from metaspec
 //	 - return as [intermediateDevice]
 //	parallel for each [intermediateDevice]:
-//	 call [newMiotDevice]
+//	 call [newDevice]
 func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	var cfgDevices config.Devices
 	err := config.Populate(&cfgDevices, config.Args[config.NoHint]{
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
-	})
+	}, args.Logger)
 	if err != nil {
 		return nil, err
 	}
 
 	// are there new devices to be added too?
-	if args.AddDevice != "" {
-		dev, err := resolveDevice(ctx, args, args.AddDevice)
-		if err != nil {
-			return nil, err
-		}
+	if len(args.AddDevices) > 0 {
+		for _, dev := range args.AddDevices {
+			dev, err := ResolveDevice(ctx, dev, args.Logger)
+			if err != nil {
+				return nil, err
+			}
 
-		// TODO don't default to Version 1
-		// TODO don't return a "device already exists" error so late
-		// workaround: backconvert did to string to
-		// fit into cfgDevices
-		didStr := strconv.Itoa(int(dev.DeviceID))
-		if _, ok := cfgDevices[didStr]; ok {
-			return nil, fmt.Errorf("device already defined in config!")
+			// TODO don't default to Version 1
+			// TODO don't return a "device already exists" error so late
+			// workaround: backconvert did to string to
+			// fit into cfgDevices
+			didStr := strconv.Itoa(int(dev.DeviceID))
+			if _, ok := cfgDevices[didStr]; ok {
+				return nil, fmt.Errorf("%w: device already defined in config!", ErrDeviceAdd)
+			}
+			cfgDevices[didStr] = dev.Device
 		}
-		cfgDevices[didStr] = dev.Device
-		config.Flush(&cfgDevices, config.Args[config.NoHint]{
+		err := config.Flush(&cfgDevices, config.Args[config.NoHint]{
 			Prefix: args.Prefix,
 			Global: args.Global,
 			Hint:   nil,
-		})
+		}, args.Logger)
+		if err != nil {
+			return nil, ErrDeviceAdd
+		}
 	}
 	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
 
@@ -346,7 +326,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	// load devices with specs already present
 	for did, dev := range devs {
 		var spec config.Spec
-		args := config.Args[config.SpecHint]{
+		specArgs := config.Args[config.SpecHint]{
 			Global: args.Global,
 			Prefix: args.Prefix,
 			Hint: &config.SpecHint{
@@ -355,7 +335,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 				Download: nil,
 			},
 		}
-		err := config.Load(&spec, args)
+		err := config.Load(&spec, specArgs, args.Logger)
 		if err != nil && errors.Is(err, fs.ErrNotExist) {
 			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
 			deferredDevices[did] = dev
@@ -376,12 +356,12 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	if len(deferredDevices) > 0 {
 		// populate metaspecs
 		var ms config.Metaspecs
-		msargs := config.Args[config.NoHint]{
+		metaspecsArgs := config.Args[config.NoHint]{
 			Prefix: args.Prefix,
 			Global: args.Global,
 			Hint:   nil,
 		}
-		err = config.Populate(&ms, msargs)
+		err = config.Populate(&ms, metaspecsArgs, args.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
 		}
@@ -411,14 +391,15 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	defer cancelInit()
 
 	for did, dev := range deviceModels {
-		args := miotDeviceArgs{
+		devArgs := miotDeviceArgs{
 			DeviceID: did,
 			Prefix:   args.Prefix,
 			Global:   args.Global,
 			Device:   dev,
+			Logger:   args.Logger,
 		}
 		wg.Go(func() {
-			dev, err := newDevice(initCtx, args)
+			dev, err := newDevice(initCtx, devArgs)
 			devices <- deviceInit{
 				Device: dev,
 				Error:  err,

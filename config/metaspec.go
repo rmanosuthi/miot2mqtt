@@ -54,12 +54,9 @@ func (ms *Metaspecs) UnmarshalFunc(src []byte) error {
 	return json.Unmarshal(src, ms)
 }
 
-// Metaspec is called "Instance" in miot parlance
-// but has been renamed to prevent confusion and
-// better reflect what it is:
+// Metaspec is a single entry of what's called an "Instance" in miot parlance
+// but has been renamed to prevent confusion and better reflect what it is:
 // metadata of a device specification.
-//
-// Populate isn't appropriate since it's a member of Metaspecs.
 type Metaspec struct {
 	Status    string `json:"status"`
 	Model     string `json:"model"`

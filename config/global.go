@@ -6,10 +6,14 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// General is a section in the global configuration for
+// tunables that don't have their own section.
 type General struct {
 	AllowExternalNetwork bool
 }
 
+// MQTT is a section in the global configuration to
+// set MQTT options.
 type MQTT struct {
 	Endpoint         string
 	Username         string
@@ -17,6 +21,7 @@ type MQTT struct {
 	KeepAliveSeconds uint16
 }
 
+// Global is the config.toml file.
 type Global struct {
 	General General
 	MQTT    MQTT

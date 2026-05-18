@@ -27,8 +27,10 @@ func (devs *Devices) UnmarshalFunc(src []byte) error {
 	return toml.Unmarshal(src, devs)
 }
 
-// This is an unverified member of Devices so
-// it doesn't implement defaultConfig
+// A Device is a section in the Devices config file,
+// representing a single device.
+//
+// It must be paired with a DeviceID to be useful.
 type Device struct {
 	Alias   string
 	Model   string

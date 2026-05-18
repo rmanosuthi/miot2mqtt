@@ -3,6 +3,7 @@ package miot
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,11 @@ const (
 var ErrDeviceDig = errors.New("failed to get device info")
 var ErrNoMetaspec = errors.New("model has no metaspec")
 
+type resolveDeviceResult struct {
+	config.Device
+	DeviceID wire.DeviceID
+}
+
 type miQueryInfo struct {
 	ID     uint32 `json:"id"`
 	Method string `json:"method"`
@@ -40,6 +46,12 @@ type miRespInfo struct {
 
 func newQueryInfo(id uint32) miQueryInfo {
 	return miQueryInfo{ID: id, Method: "miIO.info", Params: []byte{}}
+}
+
+// AddDeviceRequest is a pair of unverified IP Address and Token strings.
+type AddDeviceRequest struct {
+	IPAddr string
+	Token  string
 }
 
 type Info struct {
@@ -79,11 +91,20 @@ type InfoNetIf struct {
 	Gateway netip.Addr `json:"gw"`
 }
 
-func ResolveFromIpToken(ctx context.Context, addr netip.Addr, token *wire.Token) (*Info, error) {
+// ResolveFromIPToken tries to contact a device given an
+// address and token.
+//
+// This method is lower-level than [ResolveDevice],
+// is exported for use by utilities but
+// should not generally be called.
+func ResolveFromIPToken(
+	ctx context.Context, addr netip.Addr,
+	token *wire.Token, logger *slog.Logger,
+) (*Info, error) {
 	// first, ping
 	dialer := new(net.Dialer)
 	addrPort := netip.AddrPortFrom(addr, wire.MiPort)
-	pong, err := ping(ctx, dialer, addrPort)
+	pong, err := ping(ctx, dialer, addrPort, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +199,8 @@ func dig(ctx context.Context, args digArgs) (*Info, error) {
 
 // ResolveDefaultMetaspec finds a default Metaspec for a model name by
 // running a comparator function given by cmp.
+//
+// The recommended logic is prioritizing Version over Timestamp.
 func ResolveDefaultMetaspec(
 	modelName string,
 	metaspecs iter.Seq[config.Metaspec],
@@ -202,8 +225,8 @@ func ResolveDefaultMetaspec(
 	}
 }
 
-func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort) (*wire.Pong, error) {
-	l := slog.Default().With("addr", &addr)
+func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.Logger) (*wire.Pong, error) {
+	l := logger.With("addr", &addr)
 	conn, err := d.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
 		return nil, errors.Join(ErrDeviceDial, err)
@@ -229,4 +252,43 @@ func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort) (*wire.Pong, 
 	l.Debug("read")
 
 	return wire.GetPong(buf[0:n])
+}
+
+// ResolveDevice generates a [config.Device]
+// given an unparsed IP address and token.
+//
+// See [ResolveFromIPToken] for a low-level equivalent.
+func ResolveDevice(ctx context.Context, adr AddDeviceRequest, logger *slog.Logger) (resolveDeviceResult, error) {
+	var res resolveDeviceResult
+
+	addr, err := netip.ParseAddr(adr.IPAddr)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	var tokenBytes [16]byte
+	tokenLen, err := hex.Decode(tokenBytes[:], []byte(adr.Token))
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+	if tokenLen != wire.TokenLen {
+		return res, fmt.Errorf("%w: wrong token len %v", ErrDeviceInit, err)
+	}
+	token, err := wire.NewToken(tokenBytes)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	devInfo, err := ResolveFromIPToken(ctx, addr, token, logger)
+	if err != nil {
+		return res, errors.Join(ErrDeviceInit, err)
+	}
+
+	res.IPAddr = addr
+	res.Model = devInfo.Model
+	res.Token = adr.Token
+	res.DeviceID = devInfo.DeviceID
+	res.Version = 1
+	res.Enabled = true
+	return res, nil
 }

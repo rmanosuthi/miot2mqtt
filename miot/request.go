@@ -48,7 +48,6 @@ import (
 // Be mindful of the query size as some devices will return an error when
 // a query is too big.
 //
-// Examine a property's spec by accessing [prop.PropKey.Ref].
 // Response types can be assumed to have been checked, but the caller may still want to typecast them.
 //
 // Cancel ctx to abort the request.
@@ -69,6 +68,9 @@ func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN,
 	return req, nil
 }
 
+// getProperties is a low-level helper to
+// get a device's properties,
+// mutating req in the process.
 func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) error {
 	if dev.timeStart == nil {
 		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
@@ -142,12 +144,17 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	return nil
 }
 
+// SetProperty sends a single query to the device to
+// set a single property.
 func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req prop.SetProp) error {
 	return dev.setProperties(ctx, prop.SetPropsReq{
 		key: req,
 	})
 }
 
+// setProperties is a low-level helper to
+// set a device's properties,
+// mutating req in the process.
 func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) error {
 	if dev.timeStart == nil {
 		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
