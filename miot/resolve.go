@@ -40,7 +40,7 @@ type miQueryInfo struct {
 
 type miRespInfo struct {
 	ID      uint32   `json:"id"`
-	Result  respInfo `json:"result"`
+	Result  RespInfo `json:"result"`
 	ExeTime uint32   `json:"exe_time"`
 }
 
@@ -55,12 +55,12 @@ type AddDeviceRequest struct {
 }
 
 type Info struct {
-	respInfo
+	RespInfo
 	DeviceID  wire.DeviceID
 	Timestamp wire.Timestamp
 }
 
-type respInfo struct {
+type RespInfo struct {
 	Life                uint32    `json:"life"`
 	Model               string    `json:"model"`
 	UID                 uint64    `json:"uid"`
@@ -100,20 +100,20 @@ type InfoNetIf struct {
 func ResolveFromIPToken(
 	ctx context.Context, addr netip.Addr,
 	token *wire.Token, logger *slog.Logger,
-) (*Info, error) {
+) (Info, error) {
 	// first, ping
 	dialer := new(net.Dialer)
 	addrPort := netip.AddrPortFrom(addr, wire.MiPort)
 	pong, err := ping(ctx, dialer, addrPort, logger)
 	if err != nil {
-		return nil, err
+		return Info{}, err
 	}
 
 	// calculate epoch
 	epoch := pong.Timestamp.EpochTime(time.Now())
 	timestamp, err := wire.NewTimestamp(epoch, time.Now())
 	if err != nil {
-		return nil, err
+		return Info{}, err
 	}
 
 	return dig(ctx, digArgs{
@@ -133,7 +133,7 @@ type digArgs struct {
 	token     *wire.Token
 }
 
-func dig(ctx context.Context, args digArgs) (*Info, error) {
+func dig(ctx context.Context, args digArgs) (Info, error) {
 	connId := rand.Uint32()
 	did := args.deviceId
 	addr := args.addr
@@ -145,7 +145,7 @@ func dig(ctx context.Context, args digArgs) (*Info, error) {
 	var payload bytes.Buffer
 	jsonBytes, err := json.Marshal(query)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceDig, err)
+		return Info{}, errors.Join(ErrDeviceDig, err)
 	}
 	payload.Write(jsonBytes)
 	payload.WriteByte(0)
@@ -158,43 +158,42 @@ func dig(ctx context.Context, args digArgs) (*Info, error) {
 
 	packetSend, err := token.Marshal(&msg)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
+		return Info{}, errors.Join(ErrDeviceDial, err)
 	}
 
 	conn, err := dialer.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
+		return Info{}, errors.Join(ErrDeviceDial, err)
 	}
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceSend, err)
+		return Info{}, errors.Join(ErrDeviceSend, err)
 	}
 
 	var buf [wire.MaxPayloadSize]byte
 	n, err := conn.Read(buf[:])
 	if err != nil {
-		return nil, errors.Join(ErrDeviceRecv, err)
+		return Info{}, errors.Join(ErrDeviceRecv, err)
 	}
 
 	packetRecv, err := token.Unmarshal(buf[0:n])
 	if err != nil {
-		return nil, errors.Join(ErrDeviceRecv, err)
+		return Info{}, errors.Join(ErrDeviceRecv, err)
 	}
 
 	infoResp := new(miRespInfo)
 	err = json.Unmarshal(packetRecv.Payload, infoResp)
 	if err != nil {
-		return nil, err
+		return Info{}, err
 	}
 
-	info := Info{
-		respInfo:  infoResp.Result,
+	return Info{
+		RespInfo:  infoResp.Result,
 		DeviceID:  did,
 		Timestamp: timestamp,
-	}
-	return &info, nil
+	}, nil
 }
 
 // ResolveDefaultMetaspec finds a default Metaspec for a model name by
@@ -252,6 +251,31 @@ func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.
 	l.Debug("read")
 
 	return wire.GetPong(buf[0:n])
+}
+
+func (dev *Device) Info(ctx context.Context) (Info, error) {
+	if dev.timeStart == nil {
+		pong, err := ping(ctx, &dev.dialer, dev.Addr, dev.l)
+		if err != nil {
+			return Info{}, err
+		}
+
+		timeStart := pong.Timestamp.EpochTime(time.Now())
+		dev.timeStart = &timeStart
+	}
+
+	tsp, err := wire.NewTimestamp(*dev.timeStart, time.Now())
+	if err != nil {
+		return Info{}, err
+	}
+
+	return dig(ctx, digArgs{
+		deviceId:  dev.DeviceID,
+		dialer:    &dev.dialer,
+		addr:      dev.Addr,
+		timestamp: tsp,
+		token:     &dev.Token,
+	})
 }
 
 // ResolveDevice generates a [config.Device]
