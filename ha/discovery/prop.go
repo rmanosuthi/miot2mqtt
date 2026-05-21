@@ -43,17 +43,6 @@ func (pd *PropDecl) Attr() string {
 	}
 }
 
-// TopicFragment returns a segment of the topic.
-// A component's Mandatory prop gets "default",
-// non-mandatory ones is simply the Prefix.
-func (pd *PropDecl) TopicFragment() string {
-	if pd.Prefix == "" {
-		return "default"
-	} else {
-		return pd.Prefix
-	}
-}
-
 // PropDecls is a collection of property declarations.
 // The key is simply used for [Discovery.Components]' key.
 type PropDecls map[string]PropDecl
@@ -109,23 +98,4 @@ func MinMax[T constraints.Integer](s *config.SpecProp) (Range[T], error) {
 	} else {
 		return Range[T]{}, ErrNoMinMax
 	}
-}
-
-// PropTopic is the MQTT path of a property.
-// It is used to look up the associated [config.URN]
-// and vice-versa in ha.Device.
-type PropTopic string
-
-// NewPropTopic resolves the absolute path topic of
-// a property.
-// Read properties are suffixed by "/state",
-// write properties by "/command".
-func NewPropTopic(cmpTopic string, decl *PropDecl, write bool) PropTopic {
-	var res string
-	if write {
-		res = cmpTopic + "/" + decl.TopicFragment() + "/command"
-	} else {
-		res = cmpTopic + "/" + decl.TopicFragment() + "/state"
-	}
-	return PropTopic(res)
 }

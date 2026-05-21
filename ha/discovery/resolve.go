@@ -43,7 +43,7 @@ func (r *Resolver) NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *
 	components := make(map[string]ComponentDiscovery)
 
 	for _, cmp := range cmps {
-		components[cmp.Canon()] = cmp.Discovery
+		components[cmp.Canon] = cmp.Discovery
 	}
 
 	return Discovery{
@@ -64,8 +64,7 @@ func Hint(md *miot.Device) (string, error) {
 	return svcName, nil
 }
 
-// DeviceTopic returns the base topic for a device.
-// This does not include the wildcard character.
-func (r *Resolver) DeviceTopic(did wire.DeviceID) string {
-	return BasePath + "/" + did.String() + "/"
+// GetDeviceTopic returns the base topic for a device.
+func (r *Resolver) GetDeviceTopic(did wire.DeviceID) DeviceTopic {
+	return DeviceTopic(BasePath + "/" + did.String())
 }

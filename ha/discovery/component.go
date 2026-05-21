@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,24 +27,12 @@ type ComponentHandle struct {
 	cmp Component
 	// Device ID of the associated [miot.Device].
 	did wire.DeviceID
-	// Canonical form of the component.
-	canon string
 	// HA platform of the component.
-	platform string
-	// Base topic of the component. Not very useful on its own; see
-	// [NewPropTopic].
-	Topic         string
-	CommandTopics map[PropTopic]config.URN
-	StateTopics   map[config.URN]PropTopic
+	platform      string
+	CommandTopics map[string]config.URN
+	StateTopics   map[config.URN]string
 	Discovery     ComponentDiscovery
-}
-
-func (h *ComponentHandle) UnmarshalJSON(b []byte) error {
-	return fmt.Errorf("ComponentHandle should never be unmarshaled.")
-}
-
-func (h *ComponentHandle) MarshalJSON() ([]byte, error) {
-	return json.Marshal(h.canon)
+	Canon         string
 }
 
 // A Component is a controllable single-platform entity
@@ -102,6 +89,11 @@ type Component interface {
 	Declare() PropDecls
 }
 
+func Canon(cmp Component) string {
+	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias(), "_"))
+	return canon
+}
+
 // AttachComponent returns a component handle given a
 // Component and a [miot.Device], and will fail if
 // component cannot be attached even if it is
@@ -113,31 +105,20 @@ type Component interface {
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
 // it may not be needed.
-func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
-	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias(), "_"))
+func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
+	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform()
 	did := dev.DeviceID
-	commandTopics := make(map[PropTopic]config.URN)
-	stateTopics := make(map[config.URN]PropTopic)
-
-	var sb strings.Builder
-	sb.WriteString(BasePath)
-	sb.WriteRune('/')
-	sb.WriteString(did.String())
-	sb.WriteRune('/')
-	sb.WriteString(platform)
-	sb.WriteRune('/')
-	sb.WriteString(canon)
-	cmpTopic := sb.String()
-	sb.Reset()
+	commandTopics := make(map[string]config.URN)
+	stateTopics := make(map[config.URN]string)
 
 	decls := cmp.Declare()
 	cmpDiscov := make(ComponentDiscovery)
 
-	cmpDiscov["unique_id"] = UniqueID(did, platform, canon)
+	cmpDiscov["unique_id"] = UniqueID(did, platform, Canon(cmp))
 	cmpDiscov["platform"] = platform
 	cmpDiscov["name"] = cmp.Alias()
-	cmpDiscov["~"] = cmpTopic
+	cmpDiscov["~"] = componentTopic.AsRoot()
 
 	for matchName, decl := range decls {
 		prop, ok := dev.PropName(matchName)
@@ -158,7 +139,6 @@ func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
 		// TODO refactor
 		// old Resolver.Expand
 		attr := decl.Attr()
-		topicFrag := decl.TopicFragment()
 
 		var more map[string]any
 		var err error
@@ -178,48 +158,33 @@ func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
 			cmpDiscov["payload_"+attr+"off"] = "false"
 		}
 
+		propTopic := componentTopic.Property(&decl)
 		if prop.Read() {
 			// state topic in discov: relative
-			sb.WriteString("~/")
-			sb.WriteString(topicFrag)
-			sb.WriteString("/state")
-			cmpDiscov[attr+"state_topic"] = sb.String()
-			sb.Reset()
+			cmpDiscov[attr+"state_topic"] = propTopic.State(false)
 
 			// state topic in table: absolute
-			propTopic := NewPropTopic(cmpTopic, &decl, false)
-			stateTopics[prop.Urn] = propTopic
+			stateTopics[prop.Urn] = propTopic.State(true)
 		}
 
 		if prop.Write() {
 			// command topic in discov: relative
-			sb.WriteString("~/")
-			sb.WriteString(topicFrag)
-			sb.WriteString("/command")
-			cmpDiscov[attr+"command_topic"] = sb.String()
-			sb.Reset()
+			cmpDiscov[attr+"command_topic"] = propTopic.Command(false)
 
 			// command topic in table: absolute
-			propTopic := NewPropTopic(cmpTopic, &decl, true)
-			commandTopics[propTopic] = prop.Urn
+			commandTopics[propTopic.Command(true)] = prop.Urn
 		}
 	}
 
 	return ComponentHandle{
 		cmp:           cmp,
 		did:           did,
-		canon:         canon,
 		platform:      platform,
-		Topic:         cmpTopic,
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		Discovery:     cmpDiscov,
+		Canon:         Canon(cmp),
 	}, nil
-}
-
-// Canon returns the canonical form of a component.
-func (c *ComponentHandle) Canon() string {
-	return c.canon
 }
 
 // UniqueID calculates unique_id for a component.
