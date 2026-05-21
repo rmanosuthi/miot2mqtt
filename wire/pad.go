@@ -24,7 +24,7 @@ func padBytes(src []byte, align uint8) ([]byte, error) {
 	// add a whole block
 	var need uint8
 	lSrc := len(src)
-	slog.Debug("payload size", "len", lSrc)
+	slog.Debug("payload", "len", lSrc, "msg", string(src))
 	if lSrc > MaxPayloadSize {
 		slog.Warn("payload size exceeded, recv may fail", "len", lSrc)
 	}

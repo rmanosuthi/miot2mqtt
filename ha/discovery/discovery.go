@@ -1,50 +1,58 @@
 package discovery
 
 import (
-	"fmt"
-
-	"github.com/rmanosuthi/miot2mqtt/wire"
+	"github.com/rmanosuthi/miot2mqtt/miot"
 )
 
-const BaseTopic = "miot2mqtt"
+// ComponentDiscovery is the marshaled form of [Component].
+type ComponentDiscovery map[string]any
 
+// Discovery is the message used for device registration
+// created by [Resolver.NewDiscovery].
+type Discovery struct {
+	Device Device `json:"device"`
+	Origin Origin `json:"origin"`
+	// Components must live in a JSON map.
+	// The key does not seem to have any meaning,
+	// so [ComponentHandle.Canon] is used in place.
+	Components map[string]ComponentDiscovery `json:"components"`
+}
+
+// Device lists the manufacturer info of a device.
 type Device struct {
-	Identifiers []string `json:"ids"`
-	Name        string   `json:"name"`
+	Identifiers     []string `json:"identifiers"`
+	Alias           string   `json:"name"`
+	Manufacturer    string   `json:"manufacturer"`
+	Model           string   `json:"model"`
+	SoftwareVersion string   `json:"sw_version"`
+	HardwareVersion string   `json:"hw_version"`
+	Serial          string   `json:"serial_number"`
 }
 
-type Origin struct {
-	Name string `json:"name"`
-}
-
-// Base is a generic struct which devices may wrap to
-// form a discovery payload.
-type Base struct {
-	Device     Device `json:"dev"`
-	Origin     Origin `json:"o"`
-	Components any    `json:"cmps"`
-}
-
-// Base type for Component. Devices should wrap this.
-// DeviceClass not provided here as some don't use it.
-type BaseCmp struct {
-	Name     string `json:"name"`
-	Platform string `json:"p"`
-	UniqueId string `json:"uniq_id"`
-}
-
-func NewBaseCmp(did wire.DeviceID, cls string, alias string) BaseCmp {
-	return BaseCmp{
-		Platform: cls,
-		UniqueId: fmt.Sprintf("%v_%v", did, cls),
-		Name:     alias,
+func FromInfo(alias string, info *miot.Info) Device {
+	return Device{
+		Identifiers:     []string{info.DeviceID.String()},
+		Alias:           alias,
+		Manufacturer:    "Xiaomi",
+		Model:           info.Model,
+		SoftwareVersion: info.FirmwareVersion,
+		HardwareVersion: info.HwVersion,
+		Serial:          info.DeviceID.String(),
 	}
 }
 
-func (bc *BaseCmp) Topic(did wire.DeviceID, suffix string) string {
-	return fmt.Sprintf("%v/%v/%v/%v", BaseTopic, did, bc.UniqueId, suffix)
+// Origin lists miot2mqtt's info.
+// All devices share the same payload.
+type Origin struct {
+	Name    string `json:"name"`
+	Version string `json:"sw_version"`
+	URL     string `json:"support_url"`
 }
 
-func Ident(did wire.DeviceID) []string {
-	return []string{fmt.Sprintf("%v", did)}
+func NewOrigin() Origin {
+	return Origin{
+		Name:    "miot2mqtt",
+		Version: "0.0.0",
+		URL:     "https://github.com/rmanosuthi/miot2mqtt",
+	}
 }

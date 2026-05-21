@@ -3,13 +3,13 @@ package ha
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -74,36 +74,30 @@ func (conn HaConn) Consume(ctx context.Context, cs HaConsume) error {
 		return errors.Join(ErrMqttConnInit, err)
 	}
 
+	rsv, _ := discovery.NewResolver()
+
 	for _, md := range cs.DeviceMap {
-		dev, err := InitDevice(md)
+		dev, err := NewDevice(&rsv, md, slog.Default())
 		if err != nil {
-			if errors.Is(err, errors.ErrUnsupported) {
-				slog.Warn("device has no HA integration", "reason", err)
-			} else {
-				slog.Error("failed to initialize Home Assistant device", "reason", err)
-			}
-		} else {
-			disc, err := dev.Discovery()
-			if err != nil {
-				slog.Warn("discovery payload fail", "reason", err)
+			if err, ok := errors.AsType[ErrDevUnsupported](err); ok {
+				slog.Warn("device has no HA integration", "device", err)
 				continue
+			} else {
+				return err
 			}
-			tk := c.Publish(fmt.Sprintf("homeassistant/device/%v/config", dev.Ident()), 0, false, disc)
-			tk.Wait()
-			err = tk.Error()
-			if err != nil {
-				slog.Warn("discovery fail", "reason", err)
-			}
-			wg.Go(func() {
-				slog.Info("device online")
-				err := dev.Subscribe(ctx, conn.l, c)
-				if err != nil {
-					slog.Error("device sub failed", "reason", err)
-				}
-			})
 		}
+
+		dev.Subscribe(ctx, &wg, c, conn.global.MQTT.ForceDiscovery)
 	}
 
 	wg.Wait()
 	return nil
+}
+
+func filterCommandTopics(dev *Device) map[string]byte {
+	res := make(map[string]byte)
+	for topic, _ := range dev.CommandTopics {
+		res[string(topic)] = 1
+	}
+	return res
 }
