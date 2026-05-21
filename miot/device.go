@@ -25,6 +25,7 @@ var ErrDeviceRecv = errors.New("failed to receive from device")
 var ErrDevicePing = errors.New("failed to ping device")
 var ErrDeviceUninit = errors.New("device not initialized")
 var ErrDeviceAdd = errors.New("failed to add device")
+var ErrDeviceChanged = errors.New("device state changed, retry")
 
 // A Device is a low-level representation of a device.
 // All populated fields suffice to issue commands to one.
@@ -440,4 +441,18 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		slog.Warn("no devices")
 	}
 	return res, nil
+}
+
+// UpdateTimestamp calibrates the device's epoch to curr.
+func (dev *Device) UpdateTimestamp(curr wire.Timestamp) error {
+	// FIXME This isn't needed in practice? Investigate further.
+	// Device seems to be ok with our timestamp even after it has
+	// reset itself about every hour, but restarting the program
+	// would get a new, more recent epoch.
+	//
+	// TODO capture pcap around when the hour mark passes.
+	epoch := curr.EpochTime(time.Now())
+	dev.timeStart = &epoch
+	dev.l.Debug("updated timestamp", "epoch", epoch)
+	return ErrDeviceChanged
 }

@@ -131,6 +131,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 
 	if packetRecv.Timestamp < timestamp {
 		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
+		return dev.UpdateTimestamp(packetRecv.Timestamp)
 	}
 
 	rprops, err := prop.ParseResponse(packetRecv.Payload)
@@ -232,6 +233,11 @@ func (dev *Device) sendSetProps(ctx context.Context, query prop.RawQuery) ([]pro
 	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
 	if err != nil {
 		return nil, errors.Join(ErrDeviceRecv, err)
+	}
+
+	if packetRecv.Timestamp < timestamp {
+		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
+		return nil, dev.UpdateTimestamp(packetRecv.Timestamp)
 	}
 
 	rprops, err := prop.ParseResponse(packetRecv.Payload)
