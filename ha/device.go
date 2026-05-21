@@ -1,46 +1,19 @@
-// # Device Registration
+// # Home Assistant integration
 //
-// A device makes its presence known to Home Assistant through a Discovery message.
-// This message enumerates a device's type and its properties.
+// # TODO
 //
-// Discovery message are sent when homeassistant/status becomes "Online".
-// The submission path for a device is:
-//
-//	homeassistant/device/{DeviceID}/config
-//
-// and is of the form [discovery.Discovery].
-//
-// # Components
-//
-// Each component lives in:
-//
-//	miot2mqtt/{DeviceID}/{Component}
-//
-// and is defined as "~".
-//
-// Commands are submitted to:
-//
-//	~/{Property}/command
-//
-// and HA listens for state changes on:
-//
-//	~/{Property}/state
-//
-// See [discovery] for more info.
-//
-// # Subscription
+// # Listening for commands
 //
 // Since [miot.Device] is not threadsafe,
-// each [Device] listens on a wildcard path for its components,
+// each [Device] listens on its components' paths on their behalf,
 // avoiding any concurrency issues.
+// This is implemented as [Device.CommandTopics],
+// a lookup table mapping command topics to URNs.
 //
-// This path is:
+// # Publishing state updates
 //
-//	miot2mqtt/{DeviceID}/#
-//
-// A lookup table mapping command topics to URNs.
-//
-// A lookup table mapping URNs to state topics.
+// Conversely, [Device.StateTopics] is a lookup table mappin
+// URNs to state topics.
 package ha
 
 import (
@@ -79,13 +52,12 @@ func (e ErrDevUnsupported) Error() string {
 
 // A Device in this package is its Home Assistant-facing representation.
 type Device struct {
-	BaseTopic     string
 	components    []discovery.ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
 	rsv           *discovery.Resolver
-	CommandTopics map[discovery.PropTopic]config.URN
-	StateTopics   map[config.URN]discovery.PropTopic
+	CommandTopics map[string]config.URN
+	StateTopics   map[config.URN]string
 }
 
 func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (Device, error) {
@@ -94,14 +66,14 @@ func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (De
 		return Device{}, err
 	}
 	l := logger.With("did", md.DeviceID, "alias", md.Alias, "model", md.Model)
-	deviceTopic := rsv.DeviceTopic(md.DeviceID)
+	deviceTopic := rsv.GetDeviceTopic(md.DeviceID)
 
 	var components []discovery.ComponentHandle
-	commandTopics := make(map[discovery.PropTopic]config.URN)
-	stateTopics := make(map[config.URN]discovery.PropTopic)
+	commandTopics := make(map[string]config.URN)
+	stateTopics := make(map[config.URN]string)
 
 	for _, cmp := range cmps {
-		ch, err := discovery.AttachComponent(cmp, &md)
+		ch, err := discovery.AttachComponent(cmp, &md, deviceTopic)
 		if err != nil {
 			if errors.Is(err, discovery.ErrNoMandatoryProp) {
 				if !cmp.Mandatory() {
@@ -117,8 +89,10 @@ func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (De
 		maps.Insert(commandTopics, maps.All(ch.CommandTopics))
 		maps.Insert(stateTopics, maps.All(ch.StateTopics))
 	}
+
+	l.Debug("command", "topics", commandTopics)
+	l.Debug("state", "topics", stateTopics)
 	return Device{
-		BaseTopic:     deviceTopic,
 		components:    components,
 		md:            md,
 		l:             l,
@@ -240,7 +214,7 @@ func (dev Device) Subscribe(ctx context.Context,
 					continue
 				}
 
-				urn, ok := dev.CommandTopics[discovery.PropTopic(topic)]
+				urn, ok := dev.CommandTopics[topic]
 				if !ok {
 					l.Error("command topic not found", "topic", topic)
 					continue

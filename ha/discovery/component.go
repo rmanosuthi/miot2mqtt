@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,25 +23,18 @@ const BasePath = "miot2mqtt"
 // A ComponentHandle is an in-memory representation of
 // a Component associated with a device.
 type ComponentHandle struct {
-	cmp           Component
-	did           wire.DeviceID
-	canon         string
+	// A reference to the Component is kept just in case.
+	cmp Component
+	// Device ID of the associated [miot.Device].
+	did wire.DeviceID
+	// HA platform of the component.
 	platform      string
-	Topic         string
-	CommandTopics map[PropTopic]config.URN
-	StateTopics   map[config.URN]PropTopic
+	CommandTopics map[string]config.URN
+	StateTopics   map[config.URN]string
 	Discovery     ComponentDiscovery
+	Canon         string
 }
 
-func (h *ComponentHandle) UnmarshalJSON(b []byte) error {
-	return fmt.Errorf("ComponentHandle should never be unmarshaled.")
-}
-
-func (h *ComponentHandle) MarshalJSON() ([]byte, error) {
-	return json.Marshal(h.canon)
-}
-
-// TODO update
 // A Component is a controllable single-platform entity
 // belonging to a [Device].
 // It is used to set up routes and discovery messages.
@@ -54,19 +46,31 @@ func (h *ComponentHandle) MarshalJSON() ([]byte, error) {
 //   - Platform Number: vertical swing angle
 //   - Platform Switch: vertical oscillation
 //
-// # Identification
+// # Attributes
 //
-// Let Canon be a string derived from Alias.
-// These attributes are then derived:
+// We will call JSON map key-value pairs in a discovery message's component
+// "attributes". Example:
+//
+//	[...],
+//	"cmps": {
+//	  "some_unique_component_id1": {
+//	    "p": "sensor",
+//	    "device_class":"temperature",
+//	    "unit_of_measurement":"°C",
+//	    "value_template":"{{ value_json.temperature}}",
+//	    "unique_id":"temp01ae_t"
+//	  },
+//	}
+//
+// The component identified by "some_unique_component_id1" has attributes
+// "p", "device_class", "unit_of_measurement",
+// "value_template", and "unique_id".
+//
+// # Identification
 //
 //	component name in device discovery's components map: {Canon}
 //	unique_id: miot2mqtt_{DeviceID}_{Platform}_{Canon}
 //	name: {Alias}
-//
-// # Discovery
-//
-// Components make up part of a device's discovery message
-// through [Resolver].
 type Component interface {
 	// Mandatory tells the resolver this component's initialization must succeed,
 	// else the entire device's initialization will be aborted.
@@ -79,7 +83,15 @@ type Component interface {
 	//
 	// Meanwhile, a "switch" is simply a toggle.
 	Platform() string
+	// Declare returns property declarations for a component.
+	// These are necessary for creating a [ComponentHandle];
+	// see [AttachComponent].
 	Declare() PropDecls
+}
+
+func Canon(cmp Component) string {
+	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias(), "_"))
+	return canon
 }
 
 // AttachComponent returns a component handle given a
@@ -87,43 +99,36 @@ type Component interface {
 // component cannot be attached even if it is
 // non-mandatory.
 //
+// Callers should skip over non-mandatory components
+// returning ErrNoMandatoryProp.
+//
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
 // it may not be needed.
-//
-// TODO wrap error
-func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
-	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias(), "_"))
+func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
+	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform()
 	did := dev.DeviceID
-	commandTopics := make(map[PropTopic]config.URN)
-	stateTopics := make(map[config.URN]PropTopic)
-
-	var sb strings.Builder
-	sb.WriteString(BasePath)
-	sb.WriteRune('/')
-	sb.WriteString(did.String())
-	sb.WriteRune('/')
-	sb.WriteString(platform)
-	sb.WriteRune('/')
-	sb.WriteString(canon)
-	cmpTopic := sb.String()
-	sb.Reset()
+	commandTopics := make(map[string]config.URN)
+	stateTopics := make(map[config.URN]string)
 
 	decls := cmp.Declare()
 	cmpDiscov := make(ComponentDiscovery)
 
-	cmpDiscov["unique_id"] = UniqueID(did, platform, canon)
+	cmpDiscov["unique_id"] = UniqueID(did, platform, Canon(cmp))
 	cmpDiscov["platform"] = platform
 	cmpDiscov["name"] = cmp.Alias()
-	cmpDiscov["~"] = cmpTopic
+	cmpDiscov["~"] = componentTopic.AsRoot()
 
 	for matchName, decl := range decls {
 		prop, ok := dev.PropName(matchName)
 		if !ok {
 			if decl.Mandatory {
 				// property not found. fail if Mandatory.
-				return ComponentHandle{}, fmt.Errorf("%w: %v", ErrNoMandatoryProp, matchName)
+				return ComponentHandle{}, errors.Join(
+					ErrComponentAttach,
+					fmt.Errorf("%w: %v", ErrNoMandatoryProp, matchName),
+				)
 			} else {
 				// it's fine, just debug log
 				slog.Debug("device has no optional prop", "did", dev.DeviceID, "name", matchName)
@@ -131,16 +136,19 @@ func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
 			}
 		}
 
+		// TODO refactor
 		// old Resolver.Expand
 		attr := decl.Attr()
-		topicFrag := decl.TopicFragment()
 
 		var more map[string]any
 		var err error
 		if decl.More != nil {
 			more, err = decl.More(prop)
 			if err != nil {
-				return ComponentHandle{}, err
+				return ComponentHandle{}, errors.Join(
+					ErrComponentAttach,
+					err,
+				)
 			}
 		}
 		maps.Insert(cmpDiscov, maps.All(more))
@@ -150,48 +158,33 @@ func AttachComponent(cmp Component, dev *miot.Device) (ComponentHandle, error) {
 			cmpDiscov["payload_"+attr+"off"] = "false"
 		}
 
+		propTopic := componentTopic.Property(&decl)
 		if prop.Read() {
 			// state topic in discov: relative
-			sb.WriteString("~/")
-			sb.WriteString(topicFrag)
-			sb.WriteString("/state")
-			cmpDiscov[attr+"state_topic"] = sb.String()
-			sb.Reset()
+			cmpDiscov[attr+"state_topic"] = propTopic.State(false)
 
 			// state topic in table: absolute
-			propTopic := NewPropTopic(cmpTopic, &decl, false)
-			stateTopics[prop.Urn] = propTopic
+			stateTopics[prop.Urn] = propTopic.State(true)
 		}
 
 		if prop.Write() {
 			// command topic in discov: relative
-			sb.WriteString("~/")
-			sb.WriteString(topicFrag)
-			sb.WriteString("/command")
-			cmpDiscov[attr+"command_topic"] = sb.String()
-			sb.Reset()
+			cmpDiscov[attr+"command_topic"] = propTopic.Command(false)
 
 			// command topic in table: absolute
-			propTopic := NewPropTopic(cmpTopic, &decl, true)
-			commandTopics[propTopic] = prop.Urn
+			commandTopics[propTopic.Command(true)] = prop.Urn
 		}
 	}
 
 	return ComponentHandle{
 		cmp:           cmp,
 		did:           did,
-		canon:         canon,
 		platform:      platform,
-		Topic:         cmpTopic,
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		Discovery:     cmpDiscov,
+		Canon:         Canon(cmp),
 	}, nil
-}
-
-// Canon returns the canonical form of a component.
-func (c *ComponentHandle) Canon() string {
-	return c.canon
 }
 
 // UniqueID calculates unique_id for a component.

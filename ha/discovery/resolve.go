@@ -12,16 +12,9 @@ const IdxClassHint = 2
 var ErrDevNoHint = errors.New("device has no class hint")
 var ErrNoMandatoryProp = errors.New("no such mandatory property with name")
 
-type resolvArgs struct {
-	BasePath string
-	DeviceID wire.DeviceID
-	URN      string
-	Prefix   string
-}
-
-// Resolver converts templates into more concrete forms.
-// It does not have any side effects and is immutable,
-// so it is safe for concurrent use.
+// Resolver used to be an important struct in
+// a private branch but has been hollowed out.
+// More features may return.
 type Resolver struct {
 	basePath string
 }
@@ -32,11 +25,16 @@ func NewResolver() (Resolver, error) {
 	}, nil
 }
 
+// ResolveDiscovery returns the HA discovery topic for
+// a device.
 func (r *Resolver) ResolveDiscovery(did wire.DeviceID) string {
 	return "homeassistant/device/" + did.String() + "/config"
 }
 
-// NewDiscovery creates a discovery message for a device.
+// NewDiscovery assembles a discovery message for a device by
+// first looking up the device's info.
+//
+// This needs network access and mutates dev.
 func (r *Resolver) NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *miot.Info) (Discovery, error) {
 	device := FromInfo(dev.Alias, info)
 
@@ -45,7 +43,7 @@ func (r *Resolver) NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *
 	components := make(map[string]ComponentDiscovery)
 
 	for _, cmp := range cmps {
-		components[cmp.Canon()] = cmp.Discovery
+		components[cmp.Canon] = cmp.Discovery
 	}
 
 	return Discovery{
@@ -66,8 +64,7 @@ func Hint(md *miot.Device) (string, error) {
 	return svcName, nil
 }
 
-// DeviceTopic returns the base topic for a device.
-// This does not include the wildcard character.
-func (r *Resolver) DeviceTopic(did wire.DeviceID) string {
-	return BasePath + "/" + did.String() + "/"
+// GetDeviceTopic returns the base topic for a device.
+func (r *Resolver) GetDeviceTopic(did wire.DeviceID) DeviceTopic {
+	return DeviceTopic(BasePath + "/" + did.String())
 }

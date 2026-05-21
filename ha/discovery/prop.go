@@ -43,18 +43,8 @@ func (pd *PropDecl) Attr() string {
 	}
 }
 
-// TopicFragment returns a segment of the topic.
-// A component's Mandatory prop gets "default",
-// non-mandatory ones is simply the Prefix.
-func (pd *PropDecl) TopicFragment() string {
-	if pd.Prefix == "" {
-		return "default"
-	} else {
-		return pd.Prefix
-	}
-}
-
-// PropDecls + miot.Device = marshaled Component
+// PropDecls is a collection of property declarations.
+// The key is simply used for [Discovery.Components]' key.
 type PropDecls map[string]PropDecl
 
 type Range[T constraints.Integer] struct {
@@ -66,7 +56,7 @@ type Range[T constraints.Integer] struct {
 // ValueRange is first checked, then ValueList,
 // returning at the earliest field that satisfies the request.
 //
-// Temporary helper, does not support float.
+// FIXME Temporary helper, does not support float.
 func MinMax[T constraints.Integer](s *config.SpecProp) (Range[T], error) {
 	var minVal int64 = math.MaxInt64
 	var maxVal int64 = math.MinInt64
@@ -108,16 +98,4 @@ func MinMax[T constraints.Integer](s *config.SpecProp) (Range[T], error) {
 	} else {
 		return Range[T]{}, ErrNoMinMax
 	}
-}
-
-type PropTopic string
-
-func NewPropTopic(cmpTopic string, decl *PropDecl, write bool) PropTopic {
-	var res string
-	if write {
-		res = cmpTopic + "/" + decl.TopicFragment() + "/command"
-	} else {
-		res = cmpTopic + "/" + decl.TopicFragment() + "/state"
-	}
-	return PropTopic(res)
 }
