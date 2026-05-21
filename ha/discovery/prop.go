@@ -54,7 +54,8 @@ func (pd *PropDecl) TopicFragment() string {
 	}
 }
 
-// PropDecls + miot.Device = marshaled Component
+// PropDecls is a collection of property declarations.
+// The key is simply used for [Discovery.Components]' key.
 type PropDecls map[string]PropDecl
 
 type Range[T constraints.Integer] struct {
@@ -66,7 +67,7 @@ type Range[T constraints.Integer] struct {
 // ValueRange is first checked, then ValueList,
 // returning at the earliest field that satisfies the request.
 //
-// Temporary helper, does not support float.
+// FIXME Temporary helper, does not support float.
 func MinMax[T constraints.Integer](s *config.SpecProp) (Range[T], error) {
 	var minVal int64 = math.MaxInt64
 	var maxVal int64 = math.MinInt64
@@ -110,8 +111,15 @@ func MinMax[T constraints.Integer](s *config.SpecProp) (Range[T], error) {
 	}
 }
 
+// PropTopic is the MQTT path of a property.
+// It is used to look up the associated [config.URN]
+// and vice-versa in ha.Device.
 type PropTopic string
 
+// NewPropTopic resolves the absolute path topic of
+// a property.
+// Read properties are suffixed by "/state",
+// write properties by "/command".
 func NewPropTopic(cmpTopic string, decl *PropDecl, write bool) PropTopic {
 	var res string
 	if write {

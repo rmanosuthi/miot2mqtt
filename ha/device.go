@@ -1,46 +1,19 @@
-// # Device Registration
+// # Home Assistant integration
 //
-// A device makes its presence known to Home Assistant through a Discovery message.
-// This message enumerates a device's type and its properties.
+// # TODO
 //
-// Discovery message are sent when homeassistant/status becomes "Online".
-// The submission path for a device is:
-//
-//	homeassistant/device/{DeviceID}/config
-//
-// and is of the form [discovery.Discovery].
-//
-// # Components
-//
-// Each component lives in:
-//
-//	miot2mqtt/{DeviceID}/{Component}
-//
-// and is defined as "~".
-//
-// Commands are submitted to:
-//
-//	~/{Property}/command
-//
-// and HA listens for state changes on:
-//
-//	~/{Property}/state
-//
-// See [discovery] for more info.
-//
-// # Subscription
+// # Listening for commands
 //
 // Since [miot.Device] is not threadsafe,
-// each [Device] listens on a wildcard path for its components,
+// each [Device] listens on its components' paths on their behalf,
 // avoiding any concurrency issues.
+// This is implemented as [Device.CommandTopics],
+// a lookup table mapping command topics to URNs.
 //
-// This path is:
+// # Publishing state updates
 //
-//	miot2mqtt/{DeviceID}/#
-//
-// A lookup table mapping command topics to URNs.
-//
-// A lookup table mapping URNs to state topics.
+// Conversely, [Device.StateTopics] is a lookup table mappin
+// URNs to state topics.
 package ha
 
 import (

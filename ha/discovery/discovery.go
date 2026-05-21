@@ -1,3 +1,32 @@
+// # Device Registration
+//
+// A device makes its presence known to Home Assistant through a Discovery message.
+// This message enumerates a device's type and its properties.
+//
+// Discovery message are sent when homeassistant/status becomes "online".
+// The submission path for a device is:
+//
+//	homeassistant/device/{DeviceID}/config
+//
+// and is of the form [Discovery].
+//
+// # Components
+//
+// A component is defined as [Component].
+//
+// Each component lives in:
+//
+//	miot2mqtt/{DeviceID}/{Component}
+//
+// and is defined as "~".
+//
+// Commands are submitted to:
+//
+//	~/{Property}/command
+//
+// and HA listens for state changes on:
+//
+//	~/{Property}/state
 package discovery
 
 import (
