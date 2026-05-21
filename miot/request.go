@@ -62,7 +62,7 @@ func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN,
 
 	err := dev.getProperties(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("GetProperties")
+		return nil, fmt.Errorf("GetProperties: %w", err)
 	}
 
 	return req, nil
@@ -127,6 +127,10 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
 	if err != nil {
 		return errors.Join(ErrDeviceRecv, err)
+	}
+
+	if packetRecv.Timestamp < timestamp {
+		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
 	}
 
 	rprops, err := prop.ParseResponse(packetRecv.Payload)

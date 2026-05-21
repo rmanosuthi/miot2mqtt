@@ -49,7 +49,7 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (Response
 			if foundType == nil {
 				return rprop, nil
 			}
-			if expectedType.AssignableTo(foundType) {
+			if expectedType.ConvertibleTo(foundType) {
 				return rprop, nil
 			} else {
 				return rprop, fmt.Errorf("key unwrap type mismatch: expected %v, found %v", expectedType.Name(), foundType.Name())
