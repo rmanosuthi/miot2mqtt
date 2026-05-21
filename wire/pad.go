@@ -24,16 +24,18 @@ func padBytes(src []byte, align uint8) ([]byte, error) {
 	// add a whole block
 	var need uint8
 	lSrc := len(src)
-	slog.Debug("payload", "len", lSrc, "msg", string(src))
+	slog.Debug("sending payload", "len", lSrc, "msg", string(src))
 	if lSrc > MaxPayloadSize {
 		slog.Warn("payload size exceeded, recv may fail", "len", lSrc)
 	}
+
 	blockSize := int(align)
 	if lSrc%blockSize == 0 {
 		need = align
 	} else {
 		need = align - uint8(lSrc%blockSize)
 	}
+
 	dst := make([]byte, lSrc+int(need))
 	copy(dst, src)
 	for i := range need {
@@ -54,5 +56,8 @@ func unpadBytes(src []byte, align uint8) ([]byte, error) {
 	if padLen > lSrc {
 		return nil, fmt.Errorf("invalid pad len %v", padLen)
 	}
-	return src[0 : lSrc-padLen], nil
+
+	res := src[0 : lSrc-padLen]
+	slog.Debug("received payload", "msg", string(res))
+	return res, nil
 }
