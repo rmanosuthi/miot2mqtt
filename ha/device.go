@@ -30,7 +30,6 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/ha/fan"
 	"github.com/rmanosuthi/miot2mqtt/miot"
-	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -52,6 +51,7 @@ func (e ErrDevUnsupported) Error() string {
 
 // A Device in this package is its Home Assistant-facing representation.
 type Device struct {
+	ticker        *time.Ticker
 	components    []discovery.ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
@@ -93,6 +93,7 @@ func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (De
 	l.Debug("command", "topics", commandTopics)
 	l.Debug("state", "topics", stateTopics)
 	return Device{
+		ticker:        time.NewTicker(time.Second * 5),
 		components:    components,
 		md:            md,
 		l:             l,
@@ -192,6 +193,15 @@ func (dev Device) Subscribe(ctx context.Context,
 		}
 		for {
 			select {
+			case <-dev.ticker.C:
+				l.Debug("report")
+				ctxReport, cancelReport := context.WithTimeout(ctx, time.Second)
+				defer cancelReport()
+				err := dev.Report(ctxReport, c)
+				if err != nil {
+					l.Error("failed to report", "reason", err)
+					continue
+				}
 			case <-ctx.Done():
 				dev.l.Debug("shutting down")
 				return
@@ -205,55 +215,17 @@ func (dev Device) Subscribe(ctx context.Context,
 					continue
 				}
 			case ev := <-chEvent:
-				topic := ev.Message.Topic()
-				payload := ev.Message.Payload()
-				var val any
-				err := json.Unmarshal(payload, &val)
+				l.Debug("new event")
+				ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
+				defer cancelEv()
+				err := dev.handleEvent(ctxEv, ev)
 				if err != nil {
-					l.Error("failed to unmarshal set request", "reason", err)
+					l.Error("failed to handle event", "reason", err)
 					continue
 				}
-
-				urn, ok := dev.CommandTopics[topic]
-				if !ok {
-					l.Error("command topic not found", "topic", topic)
-					continue
-				}
-
-				key, ok := dev.md.PropKeys[urn]
-				if !ok {
-					l.Error("key not found", "urn", urn)
-					continue
-				}
-
-				req := prop.SetProp{
-					Value: val,
-				}
-				err = dev.md.SetProperty(ctx, key, &req)
-				if err != nil {
-					l.Error("set prop failed", "reason", err)
-					continue
-				}
-
-				l.Debug("set property")
-				ev.Message.Ack()
-
-				c.Publish(string(dev.StateTopics[urn]), 1, false, payload).Wait()
 			}
 		}
 	})
-}
-
-func (dev *Device) handleStatus(ctx context.Context, st Event) error {
-	status := string(st.Message.Payload())
-	client := st.Client
-
-	err := dev.sendDiscovery(ctx, status, client)
-	if err != nil {
-		return err
-	}
-	st.Message.Ack()
-	return nil
 }
 
 func (dev *Device) sendDiscovery(ctx context.Context, status string, c mqtt.Client) error {
