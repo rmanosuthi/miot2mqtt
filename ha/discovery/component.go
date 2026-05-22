@@ -153,7 +153,7 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		}
 		maps.Insert(cmpDiscov, maps.All(more))
 
-		if prop.Format.Type.Name() == "bool" {
+		if prop.Format == wire.MiTypeBool {
 			cmpDiscov["payload_"+attr+"on"] = "true"
 			cmpDiscov["payload_"+attr+"off"] = "false"
 		}

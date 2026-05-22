@@ -1,10 +1,11 @@
 package prop
 
 import (
+	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 type PropKey struct {
@@ -35,6 +36,17 @@ func Parse(spec *config.Spec) (PropKeys, Props) {
 	return propKeys, props
 }
 
+type KeyUnwrapError struct {
+	FieldName    string
+	ExpectedType wire.MiType
+	Value        json.RawMessage
+}
+
+func (e *KeyUnwrapError) Error() string {
+	typeName, _ := e.ExpectedType.MarshalText()
+	return fmt.Sprintf("field %v, expected type %v, found %v", e.FieldName, string(typeName), string(e.Value))
+}
+
 func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
@@ -44,16 +56,14 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (Response
 		rsiid := rprop.SIID
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
-			expectedType := spec.Format
-			foundType := reflect.TypeOf(rprop.Value)
-			if foundType == nil {
-				return rprop, nil
+			if _, ok := spec.Format.Cast(rprop.Value); !ok {
+				return rprop, &KeyUnwrapError{
+					FieldName:    spec.Name(),
+					ExpectedType: spec.Format,
+					Value:        rprop.Value,
+				}
 			}
-			if expectedType.ConvertibleTo(foundType) {
-				return rprop, nil
-			} else {
-				return rprop, fmt.Errorf("key unwrap type mismatch: expected %v, found %v", expectedType.Name(), foundType.Name())
-			}
+			return rprop, nil
 		}
 	}
 	return ResponseEntry{}, fmt.Errorf("this key cannot unwrap this response")

@@ -13,40 +13,44 @@ var ErrParseResponse = errors.New("failed to parse miot response")
 type PropKeys = map[config.URN]PropKey
 type Props = map[PropKey]config.SpecProp
 
-type RawQuery struct {
+type RawQuery = rawQuery
+
+type rawQuery struct {
 	ID     uint32       `json:"id"`
 	Method string       `json:"method"`
-	Params []QueryEntry `json:"params"`
+	Params []queryEntry `json:"params"`
 }
 
-type QueryEntry struct {
-	DID   string        `json:"did"`
-	SIID  config.SpecID `json:"siid"`
-	PIID  config.SpecID `json:"piid"`
-	Value any           `json:"value,omitempty"`
+type queryEntry struct {
+	DID   string          `json:"did"`
+	SIID  config.SpecID   `json:"siid"`
+	PIID  config.SpecID   `json:"piid"`
+	Value json.RawMessage `json:"value,omitempty"`
 }
 
-type ResponseEntry struct {
-	DID   string        `json:"did"`
-	SIID  config.SpecID `json:"siid"`
-	PIID  config.SpecID `json:"piid"`
-	Code  int32         `json:"code"`
-	Value any           `json:"value"`
+type ResponseEntry = responseEntry
+
+type responseEntry struct {
+	DID   string          `json:"did"`
+	SIID  config.SpecID   `json:"siid"`
+	PIID  config.SpecID   `json:"piid"`
+	Code  int32           `json:"code"`
+	Value json.RawMessage `json:"value"`
 }
 
-type ResponseError struct {
+type responseError struct {
 	Code    int32  `json:"code"`
 	Message string `json:"message"`
 }
 
-func (e *ResponseError) Error() string {
+func (e *responseError) Error() string {
 	return fmt.Sprintf("code %v: %v", e.Code, e.Message)
 }
 
-type RawResponse struct {
+type rawResponse struct {
 	ID      uint32          `json:"id"`
-	Error   *ResponseError  `json:"error,omitempty"`
-	Result  []ResponseEntry `json:"result,omitempty"`
+	Error   *responseError  `json:"error,omitempty"`
+	Result  []responseEntry `json:"result,omitempty"`
 	ExeTime uint32          `json:"exe_time"`
 }
 
@@ -57,8 +61,8 @@ func AllProperties(string, PropKey) bool {
 	return true
 }
 
-func ParseResponse(jsonBytes []byte) ([]ResponseEntry, error) {
-	var resp RawResponse
+func ParseResponse(jsonBytes []byte) ([]responseEntry, error) {
+	var resp rawResponse
 	err := json.Unmarshal(jsonBytes, &resp)
 	if err != nil {
 		return nil, errors.Join(ErrParseResponse, err)
