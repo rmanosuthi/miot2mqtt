@@ -30,7 +30,7 @@ const TokenLen = 16
 const LenHeader = 32
 
 // PadBlockSize defines the block size for PKCS7 padding.
-const PadBlockSize = 128
+const PadBlockSize = 16
 
 // Devices listen on port 54321.
 // Local communication back to us also comes from that port.

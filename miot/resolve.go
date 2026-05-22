@@ -33,9 +33,9 @@ type resolveDeviceResult struct {
 }
 
 type miQueryInfo struct {
-	ID     uint32 `json:"id"`
-	Method string `json:"method"`
-	Params []byte `json:"params"`
+	ID     uint32   `json:"id"`
+	Method string   `json:"method"`
+	Params []string `json:"params"`
 }
 
 type miRespInfo struct {
@@ -45,7 +45,7 @@ type miRespInfo struct {
 }
 
 func newQueryInfo(id uint32) miQueryInfo {
-	return miQueryInfo{ID: id, Method: "miIO.info", Params: []byte{}}
+	return miQueryInfo{ID: id, Method: "miIO.info", Params: make([]string, 0)}
 }
 
 // AddDeviceRequest is a pair of unverified IP Address and Token strings.
