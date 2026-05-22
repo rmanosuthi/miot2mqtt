@@ -44,9 +44,13 @@ type KeyUnwrapError struct {
 
 func (e *KeyUnwrapError) Error() string {
 	typeName, _ := e.ExpectedType.MarshalText()
-	return fmt.Sprintf("field %v, expected type %v, found %v", e.FieldName, string(typeName), string(e.Value))
+	return fmt.Sprintf("field %v, expected type %v, found %#v", e.FieldName, string(typeName), e.Value)
 }
 
+// Unwrap extracts a single response from a list of responses
+// using a key and a spec.
+// This function guarantees the response has already been
+// typechecked against the spec's Format.
 func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
@@ -56,6 +60,12 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (Response
 		rsiid := rprop.SIID
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
+			if rprop.Code != 0 {
+				return rprop, fmt.Errorf("response has error code %v", rprop.Code)
+			}
+			if rprop.Value == nil {
+				return rprop, nil
+			}
 			if _, ok := spec.Format.Cast(rprop.Value); !ok {
 				return rprop, &KeyUnwrapError{
 					FieldName:    spec.Name(),
