@@ -60,20 +60,28 @@ type Device struct {
 	StateTopics   map[config.URN]string
 }
 
-func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (Device, error) {
-	cmps, err := components(&md)
+type DeviceArgs struct {
+	Resolver   *discovery.Resolver
+	MiotDevice miot.Device
+	Logger     *slog.Logger
+	MQTTClient mqtt.Client
+}
+
+func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
+	md := &args.MiotDevice
+	cmps, err := components(md)
 	if err != nil {
 		return Device{}, err
 	}
-	l := logger.With("did", md.DeviceID, "alias", md.Alias, "model", md.Model)
-	deviceTopic := rsv.GetDeviceTopic(md.DeviceID)
+	l := args.Logger.With("did", md.DeviceID, "alias", md.Alias, "model", md.Model)
+	deviceTopic := args.Resolver.GetDeviceTopic(md.DeviceID)
 
 	var components []discovery.ComponentHandle
 	commandTopics := make(map[string]config.URN)
 	stateTopics := make(map[config.URN]string)
 
 	for _, cmp := range cmps {
-		ch, err := discovery.AttachComponent(cmp, &md, deviceTopic)
+		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
 		if err != nil {
 			if errors.Is(err, discovery.ErrNoMandatoryProp) {
 				if !cmp.Mandatory() {
@@ -90,14 +98,18 @@ func NewDevice(rsv *discovery.Resolver, md miot.Device, logger *slog.Logger) (De
 		maps.Insert(stateTopics, maps.All(ch.StateTopics))
 	}
 
+	for _, cmp := range components {
+		cmp.Online(ctx, args.MQTTClient)
+	}
+
 	l.Debug("command", "topics", commandTopics)
 	l.Debug("state", "topics", stateTopics)
 	return Device{
 		ticker:        time.NewTicker(time.Second * 5),
 		components:    components,
-		md:            md,
+		md:            *md,
 		l:             l,
-		rsv:           rsv,
+		rsv:           args.Resolver,
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 	}, nil
@@ -204,6 +216,9 @@ func (dev Device) Subscribe(ctx context.Context,
 				}
 			case <-ctx.Done():
 				dev.l.Debug("shutting down")
+				for _, cmp := range dev.components {
+					cmp.Offline(context.TODO(), c)
+				}
 				return
 			case st := <-chStatus:
 				l.Debug("new status")

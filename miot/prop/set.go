@@ -1,47 +1,43 @@
 package prop
 
 import (
+	"encoding/json"
 	"fmt"
 	"iter"
-	"reflect"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 )
 
 type SetProp struct {
-	Response ResponseEntry
+	Response responseEntry
 	Error    error
-	Value    any
+	value    json.RawMessage
 }
 
 type SetPropsReq = map[PropKey]*SetProp
 
-func NewSetProp[T any](spec config.SpecProp, value T) (SetProp, error) {
-	expectedType := spec.Format
-	foundType := reflect.TypeFor[T]()
-	if foundType == nil {
-		return SetProp{}, fmt.Errorf("set prop type nil")
+func NewSetProp(spec config.SpecProp, value json.RawMessage) (SetProp, error) {
+	_, ok := spec.Format.Cast(value)
+	if !ok {
+		return SetProp{}, fmt.Errorf("type mismatch")
 	}
-	if expectedType.ConvertibleTo(foundType) {
-		return SetProp{
-			Value: value,
-		}, nil
-	} else {
-		return SetProp{}, fmt.Errorf("set prop type mismatch: expected %v, found %v", expectedType, foundType)
-	}
+
+	return SetProp{
+		value: value,
+	}, nil
 }
 
-func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, *SetProp]) (RawQuery, error) {
-	var props []QueryEntry
+func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, *SetProp]) (rawQuery, error) {
+	var props []queryEntry
 	for key, setProp := range keys {
-		props = append(props, QueryEntry{
+		props = append(props, queryEntry{
 			DID:   key.DID,
 			SIID:  key.SIID,
 			PIID:  key.PIID,
-			Value: setProp.Value,
+			Value: setProp.value,
 		})
 	}
-	query := RawQuery{
+	query := rawQuery{
 		ID:     connId,
 		Method: "set_properties",
 		Params: props,

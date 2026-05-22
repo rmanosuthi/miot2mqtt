@@ -140,7 +140,11 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	}
 
 	for key, prop := range req {
-		resp, err := key.Unwrap(dev.Props[key], rprops)
+		spec, ok := dev.Props[key]
+		if !ok {
+			return errors.Join(ErrDeviceRecv, fmt.Errorf("type mismatch"))
+		}
+		resp, err := key.Unwrap(spec, rprops)
 		if err != nil {
 			return errors.Join(ErrDeviceRecv, err)
 		}

@@ -77,7 +77,12 @@ func (conn HaConn) Consume(ctx context.Context, cs HaConsume) error {
 	rsv, _ := discovery.NewResolver()
 
 	for _, md := range cs.DeviceMap {
-		dev, err := NewDevice(&rsv, md, slog.Default())
+		dev, err := NewDevice(ctx, DeviceArgs{
+			Resolver:   &rsv,
+			MiotDevice: md,
+			Logger:     slog.Default(),
+			MQTTClient: c,
+		})
 		if err != nil {
 			if err, ok := errors.AsType[ErrDevUnsupported](err); ok {
 				slog.Warn("device has no HA integration", "device", err)

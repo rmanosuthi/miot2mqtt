@@ -1,63 +1,190 @@
 package wire
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"reflect"
 )
 
-type MiType struct {
-	reflect.Type
-}
+const (
+	MiTypeBool MiType = iota
+	MiTypeUint8
+	MiTypeUint16
+	MiTypeUint32
+	MiTypeInt8
+	MiTypeInt16
+	MiTypeInt32
+	MiTypeInt64
+	MiTypeFloat
+	MiTypeString
+	MiTypeHex
+)
+
+type MiType int
 
 func (t *MiType) UnmarshalText(text []byte) error {
 	ty := string(text)
 	switch ty {
 	case "bool":
-		t.Type = reflect.TypeFor[bool]()
+		*t = MiTypeBool
 		return nil
 	case "uint8":
-		t.Type = reflect.TypeFor[uint8]()
+		*t = MiTypeUint8
 		return nil
 	case "uint16":
-		t.Type = reflect.TypeFor[uint16]()
+		*t = MiTypeUint16
 		return nil
 	case "uint32":
-		t.Type = reflect.TypeFor[uint32]()
+		*t = MiTypeUint32
 		return nil
 	case "int8":
-		t.Type = reflect.TypeFor[int8]()
+		*t = MiTypeInt8
 		return nil
 	case "int16":
-		t.Type = reflect.TypeFor[int16]()
+		*t = MiTypeInt16
 		return nil
 	case "int32":
-		t.Type = reflect.TypeFor[int32]()
+		*t = MiTypeInt32
 		return nil
 	case "int64":
-		t.Type = reflect.TypeFor[int64]()
+		*t = MiTypeInt64
 		return nil
-	// vendor spec file may not specify float size
-	// default to 32 and save it as "float32"
 	case "float":
-		t.Type = reflect.TypeFor[float32]()
-		return nil
-	case "float32":
-		t.Type = reflect.TypeFor[float32]()
-		return nil
-	case "float64":
-		t.Type = reflect.TypeFor[float64]()
+		*t = MiTypeFloat
 		return nil
 	case "string":
-		t.Type = reflect.TypeFor[string]()
+		*t = MiTypeString
 		return nil
 	case "hex":
-		// TODO make this stricter
-		t.Type = reflect.TypeFor[string]()
+		*t = MiTypeHex
 		return nil
 	}
 	return fmt.Errorf("unrecognized type %v", ty)
 }
 
 func (t *MiType) MarshalText() ([]byte, error) {
-	return []byte(t.Name()), nil
+	var name string
+	switch *t {
+	case MiTypeBool:
+		name = "bool"
+	case MiTypeUint8:
+		name = "uint8"
+	case MiTypeUint16:
+		name = "uint16"
+	case MiTypeUint32:
+		name = "uint32"
+	case MiTypeInt8:
+		name = "int8"
+	case MiTypeInt16:
+		name = "int16"
+	case MiTypeInt32:
+		name = "int32"
+	case MiTypeInt64:
+		name = "int64"
+	case MiTypeFloat:
+		name = "float"
+	case MiTypeString:
+		name = "string"
+	case MiTypeHex:
+		name = "hex"
+	default:
+		return nil, fmt.Errorf("unknown type %v", *t)
+	}
+	return []byte(name), nil
+}
+
+func (mt *MiType) Cast(msg json.RawMessage) (any, bool) {
+	switch *mt {
+	case MiTypeBool:
+		var res bool
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeUint8:
+		var res uint8
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeUint16:
+		var res uint16
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeUint32:
+		var res uint32
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeInt8:
+		var res int8
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeInt16:
+		var res int16
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeInt32:
+		var res int32
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeInt64:
+		var res int64
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeFloat:
+		var res float32
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeString:
+		var res string
+		err := json.Unmarshal(msg, &res)
+		if err != nil {
+			return res, false
+		} else {
+			return res, true
+		}
+	case MiTypeHex:
+		var tmp string
+		err := json.Unmarshal(msg, &tmp)
+		if err != nil {
+			if res, err := hex.DecodeString(tmp); err != nil {
+				return res, true
+			}
+		}
+		return tmp, false
+	default:
+		return "", false
+	}
 }

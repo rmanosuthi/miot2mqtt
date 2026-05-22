@@ -1,10 +1,11 @@
 package prop
 
 import (
+	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 type PropKey struct {
@@ -35,6 +36,21 @@ func Parse(spec *config.Spec) (PropKeys, Props) {
 	return propKeys, props
 }
 
+type KeyUnwrapError struct {
+	FieldName    string
+	ExpectedType wire.MiType
+	Value        json.RawMessage
+}
+
+func (e *KeyUnwrapError) Error() string {
+	typeName, _ := e.ExpectedType.MarshalText()
+	return fmt.Sprintf("field %v, expected type %v, found %#v", e.FieldName, string(typeName), e.Value)
+}
+
+// Unwrap extracts a single response from a list of responses
+// using a key and a spec.
+// This function guarantees the response has already been
+// typechecked against the spec's Format.
 func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
@@ -44,16 +60,20 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (Response
 		rsiid := rprop.SIID
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
-			expectedType := spec.Format
-			foundType := reflect.TypeOf(rprop.Value)
-			if foundType == nil {
+			if rprop.Code != 0 {
+				return rprop, fmt.Errorf("response has error code %v", rprop.Code)
+			}
+			if rprop.Value == nil {
 				return rprop, nil
 			}
-			if expectedType.ConvertibleTo(foundType) {
-				return rprop, nil
-			} else {
-				return rprop, fmt.Errorf("key unwrap type mismatch: expected %v, found %v", expectedType.Name(), foundType.Name())
+			if _, ok := spec.Format.Cast(rprop.Value); !ok {
+				return rprop, &KeyUnwrapError{
+					FieldName:    spec.Name(),
+					ExpectedType: spec.Format,
+					Value:        rprop.Value,
+				}
 			}
+			return rprop, nil
 		}
 	}
 	return ResponseEntry{}, fmt.Errorf("this key cannot unwrap this response")

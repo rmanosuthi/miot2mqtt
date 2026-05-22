@@ -94,11 +94,11 @@ type SpecPropValue struct {
 }
 
 type SpecAction struct {
-	IID         SpecID   `json:"iid"`
-	Type        URN      `json:"type"`
-	Description string   `json:"description"`
-	In          []string `json:"in"`
-	Out         []string `json:"out"`
+	IID         SpecID `json:"iid"`
+	Type        URN    `json:"type"`
+	Description string `json:"description"`
+	In          []any  `json:"in"`
+	Out         []any  `json:"out"`
 }
 
 type SpecEvent struct {

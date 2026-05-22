@@ -37,11 +37,7 @@ func (dev *Device) Report(ctx context.Context, c mqtt.Client) error {
 func (dev *Device) handleEvent(ctx context.Context, ev Event) error {
 	topic := ev.Message.Topic()
 	payload := ev.Message.Payload()
-	var val any
-	err := json.Unmarshal(payload, &val)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal set request: %w", err)
-	}
+	var val json.RawMessage = json.RawMessage(payload)
 
 	urn, ok := dev.CommandTopics[topic]
 	if !ok {
@@ -53,9 +49,16 @@ func (dev *Device) handleEvent(ctx context.Context, ev Event) error {
 		return fmt.Errorf("key not found: %v", urn)
 	}
 
-	req := prop.SetProp{
-		Value: val,
+	spec, ok := dev.md.Props[key]
+	if !ok {
+		return fmt.Errorf("prop not found: %v", urn)
 	}
+
+	req, err := prop.NewSetProp(spec, val)
+	if err != nil {
+		return fmt.Errorf("new set prop failed: %w", err)
+	}
+
 	err = dev.md.SetProperty(ctx, key, &req)
 	if err != nil {
 		return fmt.Errorf("set prop failed: %w", err)
