@@ -176,7 +176,58 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 		return err
 	}
 
-	rprops, err := dev.sendSetProps(ctx, query)
+	var payload bytes.Buffer
+	jsonBytes, err := json.Marshal(query)
+	if err != nil {
+		return errors.Join(ErrDeviceDial, err)
+	}
+	payload.Write(jsonBytes)
+	payload.WriteByte(0)
+
+	timestamp, err := wire.NewTimestamp(*dev.timeStart, time.Now())
+	msg := wire.MiotPacket{
+		DeviceID:  dev.DeviceID,
+		Timestamp: timestamp,
+		Payload:   payload.Bytes(),
+	}
+	packetSend, err := dev.Token.Marshal(&msg)
+	if err != nil {
+		return errors.Join(ErrDeviceDial, err)
+	}
+
+	conn, err := dev.dialer.DialUDP(ctx, "udp", netip.AddrPort{}, dev.Addr)
+	if err != nil {
+		return errors.Join(ErrDeviceDial, err)
+	}
+	deadline, ok := ctx.Deadline()
+	if ok {
+		conn.SetReadDeadline(deadline)
+		conn.SetWriteDeadline(deadline)
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(packetSend)
+	if err != nil {
+		return errors.Join(ErrDeviceSend, err)
+	}
+
+	var buf [wire.MaxPayloadSize]byte
+	n, err := conn.Read(buf[:])
+	if err != nil {
+		return errors.Join(ErrDeviceRecv, err)
+	}
+
+	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
+	if err != nil {
+		return errors.Join(ErrDeviceRecv, err)
+	}
+
+	if packetRecv.Timestamp < timestamp {
+		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
+		return dev.UpdateTimestamp(packetRecv.Timestamp)
+	}
+
+	rprops, err := prop.ParseResponse(packetRecv.Payload)
 	if err != nil {
 		return err
 	}
@@ -190,64 +241,4 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	}
 
 	return nil
-}
-
-func (dev *Device) sendSetProps(ctx context.Context, query prop.RawQuery) ([]prop.ResponseEntry, error) {
-	var payload bytes.Buffer
-	jsonBytes, err := json.Marshal(query)
-	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
-	}
-	payload.Write(jsonBytes)
-	payload.WriteByte(0)
-
-	timestamp, err := wire.NewTimestamp(*dev.timeStart, time.Now())
-	msg := wire.MiotPacket{
-		DeviceID:  dev.DeviceID,
-		Timestamp: timestamp,
-		Payload:   payload.Bytes(),
-	}
-	packetSend, err := dev.Token.Marshal(&msg)
-	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
-	}
-
-	conn, err := dev.dialer.DialUDP(ctx, "udp", netip.AddrPort{}, dev.Addr)
-	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
-	}
-	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetReadDeadline(deadline)
-		conn.SetWriteDeadline(deadline)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write(packetSend)
-	if err != nil {
-		return nil, errors.Join(ErrDeviceSend, err)
-	}
-
-	var buf [wire.MaxPayloadSize]byte
-	n, err := conn.Read(buf[:])
-	if err != nil {
-		return nil, errors.Join(ErrDeviceRecv, err)
-	}
-
-	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
-	if err != nil {
-		return nil, errors.Join(ErrDeviceRecv, err)
-	}
-
-	if packetRecv.Timestamp < timestamp {
-		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
-		return nil, dev.UpdateTimestamp(packetRecv.Timestamp)
-	}
-
-	rprops, err := prop.ParseResponse(packetRecv.Payload)
-	if err != nil {
-		return nil, err
-	}
-
-	return rprops, nil
 }

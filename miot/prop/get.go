@@ -8,7 +8,7 @@ type GetProp struct {
 type GetPropsReq = map[PropKey]*GetProp
 
 // Puts keys in req into the wire format struct.
-func MakeGetQuery(connId uint32, req GetPropsReq) (RawQuery, error) {
+func MakeGetQuery(connId uint32, req GetPropsReq) (rawQuery, error) {
 	var props []queryEntry
 	for key := range req {
 		props = append(props, queryEntry{
@@ -18,7 +18,7 @@ func MakeGetQuery(connId uint32, req GetPropsReq) (RawQuery, error) {
 			Value: nil,
 		})
 	}
-	query := RawQuery{
+	query := rawQuery{
 		ID:     connId,
 		Method: "get_properties",
 		Params: props,

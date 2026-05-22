@@ -29,7 +29,7 @@ func (dev *Device) Report(ctx context.Context, c mqtt.Client) error {
 		if err != nil {
 			return err
 		}
-		c.Publish(topic, 1, false, encVal)
+		c.Publish(topic, 1, false, encVal).Wait()
 	}
 	return nil
 }

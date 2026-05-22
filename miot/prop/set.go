@@ -9,7 +9,7 @@ import (
 )
 
 type SetProp struct {
-	Response responseEntry
+	Response ResponseEntry
 	Error    error
 	value    json.RawMessage
 }

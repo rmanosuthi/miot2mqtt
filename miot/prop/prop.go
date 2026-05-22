@@ -13,8 +13,6 @@ var ErrParseResponse = errors.New("failed to parse miot response")
 type PropKeys = map[config.URN]PropKey
 type Props = map[PropKey]config.SpecProp
 
-type RawQuery = rawQuery
-
 type rawQuery struct {
 	ID     uint32       `json:"id"`
 	Method string       `json:"method"`
@@ -28,14 +26,23 @@ type queryEntry struct {
 	Value json.RawMessage `json:"value,omitempty"`
 }
 
-type ResponseEntry = responseEntry
-
+// responseEntry is an opaque type for a device's response.
+// The exported form is [ResponseEntry] and can be obtained through
+// [PropKey.Unwrap].
 type responseEntry struct {
 	DID   string          `json:"did"`
 	SIID  config.SpecID   `json:"siid"`
 	PIID  config.SpecID   `json:"piid"`
 	Code  int32           `json:"code"`
 	Value json.RawMessage `json:"value"`
+}
+
+// ResponseEntry is an exported equivalent of [responseEntry]
+// for a device's response.
+// It can be obtained by [PropKey.Unwrap].
+type ResponseEntry struct {
+	Code  int32
+	Value json.RawMessage
 }
 
 type responseError struct {

@@ -51,7 +51,7 @@ func (e *KeyUnwrapError) Error() string {
 // using a key and a spec.
 // This function guarantees the response has already been
 // typechecked against the spec's Format.
-func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (ResponseEntry, error) {
+func (key *PropKey) Unwrap(spec config.SpecProp, resp []responseEntry) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
 	kpiid := key.PIID
@@ -61,19 +61,22 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []ResponseEntry) (Response
 		rpiid := rprop.PIID
 		if kdid == rdid && ksiid == rsiid && kpiid == rpiid {
 			if rprop.Code != 0 {
-				return rprop, fmt.Errorf("response has error code %v", rprop.Code)
+				return ResponseEntry{}, fmt.Errorf("response has error code %v", rprop.Code)
 			}
 			if rprop.Value == nil {
-				return rprop, nil
+				return ResponseEntry{}, nil
 			}
 			if _, ok := spec.Format.Cast(rprop.Value); !ok {
-				return rprop, &KeyUnwrapError{
+				return ResponseEntry{}, &KeyUnwrapError{
 					FieldName:    spec.Name(),
 					ExpectedType: spec.Format,
 					Value:        rprop.Value,
 				}
 			}
-			return rprop, nil
+			return ResponseEntry{
+				Code:  rprop.Code,
+				Value: rprop.Value,
+			}, nil
 		}
 	}
 	return ResponseEntry{}, fmt.Errorf("this key cannot unwrap this response")
