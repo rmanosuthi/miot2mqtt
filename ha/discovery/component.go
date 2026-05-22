@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
@@ -33,6 +35,15 @@ type ComponentHandle struct {
 	StateTopics   map[config.URN]string
 	Discovery     ComponentDiscovery
 	Canon         string
+	availTopic    string
+}
+
+func (ch *ComponentHandle) Online(ctx context.Context, c mqtt.Client) {
+	c.Publish(ch.availTopic, 1, false, "online").Wait()
+}
+
+func (ch *ComponentHandle) Offline(ctx context.Context, c mqtt.Client) {
+	c.Publish(ch.availTopic, 1, false, "offline").Wait()
 }
 
 // A Component is a controllable single-platform entity
@@ -71,6 +82,14 @@ type ComponentHandle struct {
 //	component name in device discovery's components map: {Canon}
 //	unique_id: miot2mqtt_{DeviceID}_{Platform}_{Canon}
 //	name: {Alias}
+//
+// # Availability
+//
+// The topic is declared as ~/availability.
+//
+// A component is simply marked as online whenever Device starts and
+// offline when the program exits.
+// This will most likely change in the future.
 type Component interface {
 	// Mandatory tells the resolver this component's initialization must succeed,
 	// else the entire device's initialization will be aborted.
@@ -114,11 +133,13 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 
 	decls := cmp.Declare()
 	cmpDiscov := make(ComponentDiscovery)
+	root := componentTopic.AsRoot()
 
 	cmpDiscov["unique_id"] = UniqueID(did, platform, Canon(cmp))
 	cmpDiscov["platform"] = platform
 	cmpDiscov["name"] = cmp.Alias()
-	cmpDiscov["~"] = componentTopic.AsRoot()
+	cmpDiscov["~"] = root
+	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 
 	for matchName, decl := range decls {
 		prop, ok := dev.PropName(matchName)
@@ -184,6 +205,7 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		StateTopics:   stateTopics,
 		Discovery:     cmpDiscov,
 		Canon:         Canon(cmp),
+		availTopic:    componentTopic.AvailTopic(),
 	}, nil
 }
 

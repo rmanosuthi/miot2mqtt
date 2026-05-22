@@ -15,6 +15,14 @@ func (ct ComponentTopic) AsRoot() string {
 	return string(ct)
 }
 
+func (ct ComponentTopic) AvailRel() string {
+	return "~/availability"
+}
+
+func (ct ComponentTopic) AvailTopic() string {
+	return string(ct) + "/availability"
+}
+
 func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
 	if decl.Prefix == "" {
 		return PropertyTopic{abs: string(ct) + "/default", rel: "~/default"}
