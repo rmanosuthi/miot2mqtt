@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
@@ -35,15 +33,7 @@ type ComponentHandle struct {
 	StateTopics   map[config.URN]string
 	Discovery     ComponentDiscovery
 	Canon         string
-	availTopic    string
-}
-
-func (ch *ComponentHandle) Online(ctx context.Context, c mqtt.Client) {
-	c.Publish(ch.availTopic, 1, false, "online").Wait()
-}
-
-func (ch *ComponentHandle) Offline(ctx context.Context, c mqtt.Client) {
-	c.Publish(ch.availTopic, 1, false, "offline").Wait()
+	AvailTopic    string
 }
 
 // A Component is a controllable single-platform entity
@@ -205,7 +195,7 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		StateTopics:   stateTopics,
 		Discovery:     cmpDiscov,
 		Canon:         Canon(cmp),
-		availTopic:    componentTopic.AvailTopic(),
+		AvailTopic:    componentTopic.AvailTopic(),
 	}, nil
 }
 

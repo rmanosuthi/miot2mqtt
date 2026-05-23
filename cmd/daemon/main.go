@@ -4,13 +4,16 @@ import (
 	"context"
 	"flag"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha"
+	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 )
 
@@ -58,11 +61,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	mqttDebugHandler := slog.NewTextHandler(os.Stderr, nil)
-	mqttErrorHandler := slog.NewTextHandler(os.Stderr, nil)
-	mqttDebug := slog.NewLogLogger(mqttDebugHandler, logLevel)
-	mqttError := slog.NewLogLogger(mqttErrorHandler, logLevel)
-
 	var addDevs []miot.AddDeviceRequest
 	if addDevices != "" {
 		splitAddDevs := strings.Split(addDevices, ",")
@@ -94,18 +92,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn, err := ha.NewConnection(ctx, l, &gc, mqttDebug, mqttError)
+	rsv, _ := discovery.NewResolver()
+
+	var wg sync.WaitGroup
+	chDpMqtt := make(chan any)
+	chMqttDp := make(chan any)
+
+	broker, err := url.Parse(gc.MQTT.Endpoint)
 	if err != nil {
-		slog.Error("failed to initialize HA", "reason", err)
+		l.Error("parse url", "reason", err)
 		os.Exit(1)
 	}
-	err = conn.Consume(ctx, ha.HaConsume{
-		DeviceMap: devices,
+	mqttArgs := ha.MQTTArgs{
+		BrokerURL: *broker,
+		Username:  gc.MQTT.Username,
+		Password:  gc.MQTT.Password,
+		Logger:    l.With("cmp", "mq"),
+		FromDp:    chDpMqtt,
+		ToDp:      chMqttDp,
+	}
+	mq, err := ha.NewMQTT(ctx, mqttArgs)
+	if err != nil {
+		l.Error("init mqtt", "reason", err)
+		os.Exit(1)
+	}
+
+	dpArgs := ha.DevicePoolArgs{
+		FromMQTT: chMqttDp,
+		ToMQTT:   chDpMqtt,
+		Resolver: &rsv,
+		Logger:   l.With("cmp", "pool"),
+	}
+	dp, err := ha.NewDevicePool(ctx, devices, dpArgs)
+	if err != nil {
+		l.Error("init dp", "reason", err)
+		os.Exit(1)
+	}
+
+	wg.Go(func() {
+		mq.Subscribe(ctx)
 	})
-	if err != nil {
-		slog.Error("HA exited with error", "reason", err)
-		os.Exit(1)
-	} else {
-		os.Exit(0)
-	}
+	wg.Go(func() {
+		dp.Subscribe(ctx, &wg)
+	})
+	wg.Wait()
 }
