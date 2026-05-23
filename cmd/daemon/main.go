@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha"
@@ -14,7 +15,6 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
 	var pfxPath, mode, inputFile, addDevices string
 	var verbose, save bool
 	flag.StringVar(&pfxPath, "P", "", "path to prefix")
@@ -63,10 +63,6 @@ func main() {
 	mqttDebug := slog.NewLogLogger(mqttDebugHandler, logLevel)
 	mqttError := slog.NewLogLogger(mqttErrorHandler, logLevel)
 
-	/* register sigint */
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-
 	var addDevs []miot.AddDeviceRequest
 	if addDevices != "" {
 		splitAddDevs := strings.Split(addDevices, ",")
@@ -82,6 +78,9 @@ func main() {
 		}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	devArgs := miot.LoadArgs{
 		Prefix:     pfx,
 		Global:     &gc,
@@ -95,32 +94,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctxHa, cancelHa := context.WithCancel(ctx)
-	defer cancelHa()
-	conn, err := ha.NewConnection(ctxHa, l, &gc, mqttDebug, mqttError)
+	conn, err := ha.NewConnection(ctx, l, &gc, mqttDebug, mqttError)
 	if err != nil {
 		slog.Error("failed to initialize HA", "reason", err)
 		os.Exit(1)
 	}
-	haRes := make(chan error)
-	go func() {
-		err := conn.Consume(ctxHa, ha.HaConsume{
-			DeviceMap: devices,
-		})
-		haRes <- err
-	}()
-
-	select {
-	case <-c:
-		slog.Info("stopping HA")
-		cancelHa()
-		<-haRes
-		return
-	case err := <-haRes:
-		if err != nil {
-			slog.Error("HA exited with error", "reason", err)
-			os.Exit(1)
-		}
-		return
+	err = conn.Consume(ctx, ha.HaConsume{
+		DeviceMap: devices,
+	})
+	if err != nil {
+		slog.Error("HA exited with error", "reason", err)
+		os.Exit(1)
+	} else {
+		os.Exit(0)
 	}
 }
