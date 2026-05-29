@@ -1,19 +1,12 @@
-// # Home Assistant integration
-//
-// # TODO
-//
-// # Listening for commands
+// # Device Concurrency
 //
 // Since [miot.Device] is not threadsafe,
-// each [Device] listens on its components' paths on their behalf,
-// avoiding any concurrency issues.
-// This is implemented as [Device.CommandTopics],
-// a lookup table mapping command topics to URNs.
+// [Device] wraps that struct and
+// only accepts external requests through its Mailbox.
 //
-// # Publishing state updates
-//
-// Conversely, [Device.StateTopics] is a lookup table mappin
-// URNs to state topics.
+// Note: Messages to DevicePool get sent to a common channel
+// [Device.Pool]
+// shared between all devices.
 package ha
 
 import (
@@ -23,7 +16,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"sync"
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
@@ -32,12 +24,13 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	paho "github.com/eclipse/paho.golang/paho"
 )
 
 const HintFan = "fan"
 
 var ErrDevNoHint = errors.New("device has no class hint in spec")
+var ErrDevEv = errors.New("incoming event")
 
 type ErrDevUnsupported struct {
 	did   wire.DeviceID
@@ -46,7 +39,7 @@ type ErrDevUnsupported struct {
 }
 
 func (e ErrDevUnsupported) Error() string {
-	return fmt.Sprintf("did %v model %v class %v", e.did, e.model, e.cls)
+	return fmt.Sprintf("unsupported device: did %v model %v class %v", e.did, e.model, e.cls)
 }
 
 // A Device in this package is its Home Assistant-facing representation.
@@ -58,23 +51,28 @@ type Device struct {
 	rsv           *discovery.Resolver
 	CommandTopics map[string]config.URN
 	StateTopics   map[config.URN]string
+	EnumTopics    DpMqConnInfo
+	// Recognized: DpDevReqDiscovery
+	mbox chan any
+	Pool chan<- any
 }
 
 type DeviceArgs struct {
 	Resolver   *discovery.Resolver
 	MiotDevice miot.Device
 	Logger     *slog.Logger
-	MQTTClient mqtt.Client
+	Pool       chan<- any
 }
 
 func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	md := &args.MiotDevice
+	did := md.DeviceID
 	cmps, err := components(md)
 	if err != nil {
 		return Device{}, err
 	}
-	l := args.Logger.With("did", md.DeviceID, "alias", md.Alias, "model", md.Model)
-	deviceTopic := args.Resolver.GetDeviceTopic(md.DeviceID)
+	l := args.Logger.With("did", did, "alias", md.Alias, "model", md.Model)
+	deviceTopic := args.Resolver.GetDeviceTopic(did)
 
 	var components []discovery.ComponentHandle
 	commandTopics := make(map[string]config.URN)
@@ -85,12 +83,13 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		if err != nil {
 			if errors.Is(err, discovery.ErrNoMandatoryProp) {
 				if !cmp.Mandatory() {
+					l.Debug("no optional component", "name", cmp.Alias())
 					continue
 				} else {
-					return Device{}, err
+					return Device{}, fmt.Errorf("component attach: %w", err)
 				}
 			} else {
-				return Device{}, err
+				return Device{}, fmt.Errorf("component attach: %w", err)
 			}
 		}
 		components = append(components, ch)
@@ -98,8 +97,19 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		maps.Insert(stateTopics, maps.All(ch.StateTopics))
 	}
 
-	for _, cmp := range components {
-		cmp.Online(ctx, args.MQTTClient)
+	mbox := make(chan any)
+
+	resp := DpMqConnInfo{
+		DID:       did,
+		RouteGlob: deviceTopic.Glob(),
+		SubTopics: commandTopics,
+		ForwardTo: func(pub *paho.Publish) {
+			select {
+			case mbox <- MqDevPublish{pub}:
+			default:
+				slog.Error("mq forwarder", "reason", ErrChFull)
+			}
+		},
 	}
 
 	l.Debug("command", "topics", commandTopics)
@@ -112,7 +122,19 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		rsv:           args.Resolver,
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
+		EnumTopics:    resp,
+		mbox:          mbox,
+		Pool:          args.Pool,
 	}, nil
+}
+
+func (dev *Device) Post(msg any) error {
+	select {
+	case dev.mbox <- msg:
+		return nil
+	default:
+		return ErrChFull
+	}
 }
 
 // components gets a [Component] group to attach to a device.
@@ -138,7 +160,7 @@ func components(md *miot.Device) ([]discovery.Component, error) {
 	}
 }
 
-func (dev *Device) Declare(ctx context.Context, c mqtt.Client) ([]byte, error) {
+func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 	info, err := dev.md.Info(ctx)
 	if err != nil {
 		return nil, err
@@ -151,120 +173,105 @@ func (dev *Device) Declare(ctx context.Context, c mqtt.Client) ([]byte, error) {
 	return json.Marshal(&disc)
 }
 
-// Subscribe spawns new goroutines in the [sync.WaitGroup] wg and listens on:
+// Subscribe starts the Device service.
 //
-//  1. miot2mqtt/{DeviceID}/# - Get/Set requests.
-//  2. homeassistant/status - Send discovery message.
-//     Each device listens to this to avoid having to "stop the world".
+// Shutdown steps:
 //
-// This function does not block.
-func (dev Device) Subscribe(ctx context.Context,
-	wg *sync.WaitGroup, c mqtt.Client, forceDiscov bool) {
+//  1. Handle remaining mailbox messages
+//  2. Update availability to offline
+//  3. Return
+func (dev Device) Subscribe(ctx context.Context) {
 	l := dev.l
-
-	chStatus := make(chan Event)
-	tkStat := c.Subscribe("homeassistant/status", 1, func(c mqtt.Client, m mqtt.Message) {
+	did := dev.md.DeviceID
+	l.Info("device online")
+	// make each component online
+	cmpsOnline := make(map[string][]byte)
+	for _, ch := range dev.components {
+		cmpsOnline[ch.AvailTopic] = []byte("online")
+	}
+	dev.Pool <- DevMqPost{
+		DID:     did,
+		Payload: cmpsOnline,
+	}
+	for {
 		select {
-		case <-ctx.Done():
-			close(chStatus)
-		case chStatus <- Event{
-			Client:  c,
-			Message: m,
-		}:
-		default:
-			l.Warn("dropping status message")
-		}
-	}).Wait()
-
-	chEvent := make(chan Event)
-	ft := filterCommandTopics(&dev)
-	tkEv := c.SubscribeMultiple(ft, func(c mqtt.Client, m mqtt.Message) {
-		select {
-		case <-ctx.Done():
-			close(chEvent)
-		case chEvent <- Event{
-			Client:  c,
-			Message: m,
-		}:
-		default:
-			l.Warn("dropping event")
-		}
-	}).Wait()
-
-	var _ = tkStat
-	var _ = tkEv
-
-	wg.Go(func() {
-		l.Info("device online")
-		if forceDiscov {
-			l.Warn("forcing discovery")
-			err := dev.sendDiscovery(ctx, "online", c)
+		case <-dev.ticker.C:
+			l.Debug("report")
+			ctxReport, cancelReport := context.WithTimeout(ctx, time.Second)
+			defer cancelReport()
+			report, err := dev.Report(ctxReport)
 			if err != nil {
-				l.Error("failed to force discovery", "reason", err)
+				l.Error("failed to report", "reason", err)
+				continue
 			}
-		}
-		for {
-			select {
-			case <-dev.ticker.C:
-				l.Debug("report")
-				ctxReport, cancelReport := context.WithTimeout(ctx, time.Second)
-				defer cancelReport()
-				err := dev.Report(ctxReport, c)
-				if err != nil {
-					l.Error("failed to report", "reason", err)
-					continue
-				}
-			case <-ctx.Done():
-				dev.l.Debug("shutting down")
-				for _, cmp := range dev.components {
-					cmp.Offline(context.TODO(), c)
-				}
-				return
-			case st := <-chStatus:
-				l.Debug("new status")
-				ctxSt, cancelSt := context.WithTimeout(ctx, time.Second)
-				defer cancelSt()
-				err := dev.handleStatus(ctxSt, st)
-				if err != nil {
-					l.Error("failed to handle status", "reason", err)
-					continue
-				}
-			case ev := <-chEvent:
-				l.Debug("new event")
-				ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
-				defer cancelEv()
-				err := dev.handleEvent(ctxEv, ev)
-				if err != nil {
-					l.Error("failed to handle event", "reason", err)
-					continue
-				}
+
+			dev.Pool <- report
+		case <-ctx.Done():
+			l := l.With("stage", "shutdown")
+
+			// step 1
+			l.Debug("drain mbox msgs")
+			for msg := range dev.mbox {
+				dev.handleMboxMsg(context.TODO(), msg)
 			}
+
+			// step 2
+			l.Debug("update avail offline")
+			post := DevMqPost{
+				DID:     did,
+				Payload: make(map[string][]byte),
+			}
+			for _, cmp := range dev.components {
+				post.Payload[cmp.AvailTopic] = []byte("offline")
+			}
+			dev.Pool <- post
+
+			l.Info("done")
+			return
+		case msg, ok := <-dev.mbox:
+			if !ok {
+				l.Debug("mailbox closed")
+				continue
+			}
+			l.Debug("new message")
+			dev.handleMboxMsg(ctx, msg)
 		}
-	})
+	}
 }
 
-func (dev *Device) sendDiscovery(ctx context.Context, status string, c mqtt.Client) error {
+func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	l := dev.l
-	if status == "online" {
-		l.Debug("HA became online")
-		decl, err := dev.Declare(ctx, c)
+	did := dev.md.DeviceID
+
+	switch msg := msg.(type) {
+	case MqDevPublish:
+		l.Debug("publish")
+		pub := msg
+		ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
+		defer cancelEv()
+		post, err := dev.handleEvent(ctxEv, pub.Topic, pub.Payload)
+		if err != nil {
+			return errors.Join(ErrDevEv, err)
+		}
+
+		dev.Pool <- post
+	case DpDevReqDiscovery:
+		l.Debug("discovery")
+		ctxDecl, cancelDecl := context.WithTimeout(ctx, time.Second)
+		defer cancelDecl()
+		decl, err := dev.Declare(ctxDecl)
 		if err != nil {
 			return err
 		}
 		l.Debug("created discovery payload", "msg", string(decl))
-
-		discPath := dev.rsv.ResolveDiscovery(dev.md.DeviceID)
-		tk := c.Publish(discPath, 1, true, decl)
-		select {
-		case <-tk.Done():
-			if err := tk.Error(); err != nil {
-				return err
-			}
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
+		dev.Pool <- DevMqPost{
+			DID: did,
+			Payload: map[string][]byte{
+				dev.rsv.ResolveDiscovery(did): decl,
+			},
 		}
-	} else {
-		return nil
+	default:
+		return fmt.Errorf("unknown message: %v", msg)
 	}
+	return nil
 }
