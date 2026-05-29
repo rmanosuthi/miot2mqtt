@@ -30,6 +30,7 @@ import (
 const HintFan = "fan"
 
 var ErrDevNoHint = errors.New("device has no class hint in spec")
+var ErrDevEv = errors.New("incoming event")
 
 type ErrDevUnsupported struct {
 	did   wire.DeviceID
@@ -52,8 +53,8 @@ type Device struct {
 	StateTopics   map[config.URN]string
 	EnumTopics    DpMqConnInfo
 	// Recognized: DpDevReqDiscovery
-	Mailbox chan any
-	Pool    chan<- any
+	mbox chan any
+	Pool chan<- any
 }
 
 type DeviceArgs struct {
@@ -98,13 +99,16 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 
 	mbox := make(chan any)
 
-	// TODO cmp Online
 	resp := DpMqConnInfo{
 		DID:       did,
 		RouteGlob: deviceTopic.Glob(),
 		SubTopics: commandTopics,
 		ForwardTo: func(pub *paho.Publish) {
-			mbox <- MqDevPublish{pub}
+			select {
+			case mbox <- MqDevPublish{pub}:
+			default:
+				slog.Error("mq forwarder", "reason", ErrChFull)
+			}
 		},
 	}
 
@@ -119,9 +123,18 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		EnumTopics:    resp,
-		Mailbox:       mbox,
+		mbox:          mbox,
 		Pool:          args.Pool,
 	}, nil
+}
+
+func (dev *Device) Post(msg any) error {
+	select {
+	case dev.mbox <- msg:
+		return nil
+	default:
+		return ErrChFull
+	}
 }
 
 // components gets a [Component] group to attach to a device.
@@ -160,10 +173,26 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 	return json.Marshal(&disc)
 }
 
+// Subscribe starts the Device service.
+//
+// Shutdown steps:
+//
+//  1. Handle remaining mailbox messages
+//  2. Update availability to offline
+//  3. Return
 func (dev Device) Subscribe(ctx context.Context) {
 	l := dev.l
 	did := dev.md.DeviceID
 	l.Info("device online")
+	// make each component online
+	cmpsOnline := make(map[string][]byte)
+	for _, ch := range dev.components {
+		cmpsOnline[ch.AvailTopic] = []byte("online")
+	}
+	dev.Pool <- DevMqPost{
+		DID:     did,
+		Payload: cmpsOnline,
+	}
 	for {
 		select {
 		case <-dev.ticker.C:
@@ -178,7 +207,16 @@ func (dev Device) Subscribe(ctx context.Context) {
 
 			dev.Pool <- report
 		case <-ctx.Done():
-			l.Debug("shutting down")
+			l := l.With("stage", "shutdown")
+
+			// step 1
+			l.Debug("drain mbox msgs")
+			for msg := range dev.mbox {
+				dev.handleMboxMsg(context.TODO(), msg)
+			}
+
+			// step 2
+			l.Debug("update avail offline")
 			post := DevMqPost{
 				DID:     did,
 				Payload: make(map[string][]byte),
@@ -187,39 +225,53 @@ func (dev Device) Subscribe(ctx context.Context) {
 				post.Payload[cmp.AvailTopic] = []byte("offline")
 			}
 			dev.Pool <- post
-			return
-		case msg := <-dev.Mailbox:
-			l.Debug("new message")
-			switch msg := msg.(type) {
-			case MqDevPublish:
-				pub := msg
-				ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
-				defer cancelEv()
-				post, err := dev.handleEvent(ctxEv, pub.Topic, pub.Payload)
-				if err != nil {
-					l.Error("incoming event", "reason", err)
-					continue
-				}
 
-				dev.Pool <- post
-			case DpDevReqDiscovery:
-				ctxDecl, cancelDecl := context.WithTimeout(ctx, time.Second)
-				defer cancelDecl()
-				decl, err := dev.Declare(ctxDecl)
-				if err != nil {
-					l.Error("query device info", "reason", err)
-					continue
-				}
-				l.Debug("created discovery payload", "msg", string(decl))
-				dev.Pool <- DevMqPost{
-					DID: did,
-					Payload: map[string][]byte{
-						dev.rsv.ResolveDiscovery(did): decl,
-					},
-				}
-			default:
-				l.Error("unknown message")
+			l.Info("done")
+			return
+		case msg, ok := <-dev.mbox:
+			if !ok {
+				l.Debug("mailbox closed")
+				continue
 			}
+			l.Debug("new message")
+			dev.handleMboxMsg(ctx, msg)
 		}
 	}
+}
+
+func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
+	l := dev.l
+	did := dev.md.DeviceID
+
+	switch msg := msg.(type) {
+	case MqDevPublish:
+		l.Debug("publish")
+		pub := msg
+		ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
+		defer cancelEv()
+		post, err := dev.handleEvent(ctxEv, pub.Topic, pub.Payload)
+		if err != nil {
+			return errors.Join(ErrDevEv, err)
+		}
+
+		dev.Pool <- post
+	case DpDevReqDiscovery:
+		l.Debug("discovery")
+		ctxDecl, cancelDecl := context.WithTimeout(ctx, time.Second)
+		defer cancelDecl()
+		decl, err := dev.Declare(ctxDecl)
+		if err != nil {
+			return err
+		}
+		l.Debug("created discovery payload", "msg", string(decl))
+		dev.Pool <- DevMqPost{
+			DID: did,
+			Payload: map[string][]byte{
+				dev.rsv.ResolveDiscovery(did): decl,
+			},
+		}
+	default:
+		return fmt.Errorf("unknown message: %v", msg)
+	}
+	return nil
 }

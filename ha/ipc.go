@@ -11,15 +11,26 @@
 // DevicePool to MQ
 //
 //   - [DpMqConnInfo]
-//   - [DevMqDiscovery]
+//
+// DevicePool to Device
+//
+//   - [DpDevReqDiscovery]
+//
+// Device to MQ
+//
+//   - [DevMqPost] through DevicePool
 package ha
 
 import (
+	"errors"
+
 	"github.com/eclipse/paho.golang/autopaho"
 	paho "github.com/eclipse/paho.golang/paho"
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
+
+var ErrChFull = errors.New("channel is full")
 
 // MqDpConnected is sent from MQTT to DevicePool to
 // request subscription and routing info for devices.

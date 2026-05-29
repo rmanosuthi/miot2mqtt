@@ -97,6 +97,8 @@ func main() {
 	var wg sync.WaitGroup
 	chDpMqtt := make(chan any)
 	chMqttDp := make(chan any)
+	ctxMq, cancelMq := context.WithCancel(context.Background())
+	ctxDp, cancelDp := context.WithCancel(context.Background())
 
 	broker, err := url.Parse(gc.MQTT.Endpoint)
 	if err != nil {
@@ -110,6 +112,7 @@ func main() {
 		Logger:    l.With("cmp", "mq"),
 		FromDp:    chDpMqtt,
 		ToDp:      chMqttDp,
+		CancelDp:  cancelDp,
 	}
 	mq, err := ha.NewMQTT(ctx, mqttArgs)
 	if err != nil {
@@ -129,11 +132,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// create detached contexts for services
+	// since we need to do interdependent work on shutdown
 	wg.Go(func() {
-		mq.Subscribe(ctx)
+		mq.Subscribe(ctxMq)
 	})
+
 	wg.Go(func() {
-		dp.Subscribe(ctx, &wg)
+		dp.Subscribe(ctxDp)
 	})
+
+	<-ctx.Done()
+	cancelMq()
 	wg.Wait()
+	l.Info("terminated")
 }
