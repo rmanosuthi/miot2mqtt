@@ -142,8 +142,18 @@ func main() {
 		dp.Subscribe(ctxDp)
 	})
 
-	<-ctx.Done()
-	cancelMq()
-	wg.Wait()
-	l.Info("terminated")
+	select {
+	case <-ctx.Done():
+		l.Info("stopping")
+		cancelMq()
+		wg.Wait()
+		l.Info("terminated")
+		os.Exit(0)
+	case <-ctxMq.Done():
+		l.Error("MQ exited early")
+		os.Exit(1)
+	case <-ctxDp.Done():
+		l.Error("Devices exited early")
+		os.Exit(1)
+	}
 }

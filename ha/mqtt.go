@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/eclipse/paho.golang/autopaho"
@@ -220,8 +221,11 @@ func NewMQTT(
 //  7. Disconnect and return
 func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 	l := mq.logger
+	l.Info("service is live")
+	var run bool = true
 	if err := mq.conn.AwaitConnection(ctx); err != nil {
-		return err
+		l.Error("connect to MQTT", "reason", err)
+		run = false
 	}
 
 	go func() {
@@ -229,64 +233,70 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 			Conn: mq.conn,
 		}
 	}()
-	for {
+
+	for run {
 		select {
 		case <-ctx.Done():
-			l := l.With("stage", "shutdown")
-			// step 1
-			l.Debug("no more intake")
-			close(mq.chNoMoreIntake)
-
-			// step 2
-			l.Debug("query routes subs")
-			chSubs := make(chan DpMqConnInfo)
-			mq.toDp <- MqDpConnected{
-				ReplyTo: chSubs,
-			}
-			topics := make([]string, 0, 64)
-
-			// step 3
-			// FIXME this might not 100% match what was set up initially
-			// keep a copy around?
-			l.Debug("remove routes subs")
-			for devTopics := range chSubs {
-				for topic, _ := range devTopics.SubTopics {
-					topics = append(topics, topic)
-				}
-				mq.router.UnregisterHandler(devTopics.RouteGlob)
-			}
-			_, err := mq.conn.Unsubscribe(context.TODO(), &paho.Unsubscribe{
-				Topics: topics,
-			})
-			// TODO err
-			var _ = err
-
-			// step 4
-			l.Debug("close toDp")
-			close(mq.toDp)
-
-			// step 5
-			l.Debug("cancel dp")
-			mq.cancelDp()
-
-			// step 6
-			l.Debug("wait fromDp")
-			for msg := range mq.fromDp {
-				mqttHandleDpMsg(context.TODO(), mq.conn, msg)
-			}
-
-			// step 7
-			l.Debug("disconnect")
-			err = mq.conn.Disconnect(context.TODO())
-			// TODO err
-
-			l.Info("done")
-			return nil
-
+			run = false
 		case msg := <-mq.fromDp:
 			mqttHandleDpMsg(ctx, mq.conn, msg)
 		}
 	}
+	l = l.With("stage", "shutdown")
+	// step 1
+	l.Debug("no more intake")
+	close(mq.chNoMoreIntake)
+
+	// step 2
+	l.Debug("query routes subs")
+	chSubs := make(chan DpMqConnInfo)
+	mq.toDp <- MqDpConnected{
+		ReplyTo: chSubs,
+	}
+	topics := make([]string, 0, 64)
+
+	// step 3
+	// FIXME this might not 100% match what was set up initially
+	// keep a copy around?
+	l.Debug("remove routes subs")
+	for devTopics := range chSubs {
+		for topic, _ := range devTopics.SubTopics {
+			topics = append(topics, topic)
+		}
+		mq.router.UnregisterHandler(devTopics.RouteGlob)
+	}
+	_, err := mq.conn.Unsubscribe(context.TODO(), &paho.Unsubscribe{
+		Topics: topics,
+	})
+	// TODO err
+	var _ = err
+
+	// step 4
+	l.Debug("close toDp")
+	close(mq.toDp)
+
+	// step 5
+	l.Debug("cancel dp")
+	mq.cancelDp()
+
+	var wg sync.WaitGroup
+	// step 6
+	l.Debug("wait fromDp")
+	for msg := range mq.fromDp {
+		wg.Go(func() {
+			mqttHandleDpMsg(context.TODO(), mq.conn, msg)
+		})
+	}
+	wg.Wait()
+
+	// step 7
+	l.Debug("disconnect")
+	err = mq.conn.Disconnect(context.TODO())
+	// TODO err
+
+	l.Info("done")
+	return nil
+
 }
 
 func mqttHandleDpMsg(ctx context.Context, conn *autopaho.ConnectionManager, msg any) error {

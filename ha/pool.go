@@ -83,49 +83,17 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			dev.Subscribe(ctxDev)
 		})
 	}
-	for {
+
+	l.Info("service is live")
+	var run bool = true
+	for run {
 		select {
 		case <-ctx.Done():
-			l := l.With("stage", "shutdown")
-
-			// step 1
-			l.Debug("close mboxes")
-			for _, dev := range dp.devs {
-				close(dev.mbox)
-			}
-
-			// step 2
-			l.Debug("cancel devs")
-			cancelDev()
-
-			// devs used to close this channel but
-			// that led to panics.
-			// close it here for now.
-			go func() {
-				wg.Wait()
-				close(dp.fromDevs)
-			}()
-			// step 3
-			l.Debug("drain pub reqs")
-			for ev := range dp.fromDevs {
-				ctxEv, cancelEv := context.WithTimeout(context.Background(), time.Second)
-				defer cancelEv()
-				err := dp.handleFromDevs(ctxEv, ev)
-				if err != nil {
-					l.Error("msg from dev", "reason", err)
-				}
-			}
-
-			// step 4
-			l.Debug("close mqSend")
-			close(mqSend)
-
-			// step 5
-			l.Info("done")
-			return nil
+			run = false
 		case ev, ok := <-mqRecv:
 			if !ok {
 				l.Debug("mq has probably shut down")
+				run = false
 				continue
 			}
 			switch ev := ev.(type) {
@@ -161,6 +129,44 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			}
 		}
 	}
+	l = l.With("stage", "shutdown")
+
+	// step 1
+	l.Debug("close mboxes")
+	for _, dev := range dp.devs {
+		close(dev.mbox)
+	}
+
+	// step 2
+	l.Debug("cancel devs")
+	cancelDev()
+
+	// devs used to close this channel but
+	// that led to panics.
+	// close it here for now.
+	go func() {
+		wg.Wait()
+		close(dp.fromDevs)
+	}()
+	// step 3
+	l.Debug("drain pub reqs")
+	for ev := range dp.fromDevs {
+		ctxEv, cancelEv := context.WithTimeout(context.Background(), time.Second)
+		defer cancelEv()
+		err := dp.handleFromDevs(ctxEv, ev)
+		if err != nil {
+			l.Error("msg from dev", "reason", err)
+			continue
+		}
+	}
+
+	// step 4
+	l.Debug("close mqSend")
+	close(mqSend)
+
+	// step 5
+	l.Info("done")
+	return nil
 }
 
 func (dp *DevicePool) handleFromDevs(ctx context.Context, ev any) error {
@@ -168,7 +174,7 @@ func (dp *DevicePool) handleFromDevs(ctx context.Context, ev any) error {
 	case DevMqPost:
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("DP -> MQ blocked!")
+			return ErrChFull
 		case dp.mqSend <- ev:
 			return nil
 		}
