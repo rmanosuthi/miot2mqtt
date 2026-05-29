@@ -129,7 +129,21 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			}
 		}
 	}
-	l = l.With("stage", "shutdown")
+	return dp.shutdown(ctx, dpShutdownArgs{
+		CancelDevs: cancelDev,
+		WgDevs:     &wg,
+		MQSend:     mqSend,
+	})
+}
+
+type dpShutdownArgs struct {
+	CancelDevs context.CancelFunc
+	WgDevs     *sync.WaitGroup
+	MQSend     chan<- any
+}
+
+func (dp *DevicePool) shutdown(ctx context.Context, args dpShutdownArgs) error {
+	l := dp.logger.With("stage", "shutdown")
 
 	// step 1
 	l.Debug("close mboxes")
@@ -139,13 +153,13 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 
 	// step 2
 	l.Debug("cancel devs")
-	cancelDev()
+	args.CancelDevs()
 
 	// devs used to close this channel but
 	// that led to panics.
 	// close it here for now.
 	go func() {
-		wg.Wait()
+		args.WgDevs.Wait()
 		close(dp.fromDevs)
 	}()
 	// step 3
@@ -162,7 +176,7 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 
 	// step 4
 	l.Debug("close mqSend")
-	close(mqSend)
+	close(args.MQSend)
 
 	// step 5
 	l.Info("done")

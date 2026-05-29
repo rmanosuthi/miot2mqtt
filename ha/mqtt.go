@@ -209,30 +209,23 @@ func NewMQTT(
 }
 
 // Subscribe starts the MQTT service.
-//
-// Shutdown steps:
-//
-//  1. Tell paho to not repopulate routes and subscriptions upon reconnect
-//  2. Query DevicePool for latest routes and subs
-//  3. Use the result to remove routes and subs
-//  4. Close toDp to signal there will be no more received messages
-//  5. Cancel DevicePool so it can publish remaining messages
-//  6. Wait until that's done through fromDp getting closed
-//  7. Disconnect and return
 func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 	l := mq.logger
 	l.Info("service is live")
 	var run bool = true
 	if err := mq.conn.AwaitConnection(ctx); err != nil {
 		l.Error("connect to MQTT", "reason", err)
+		// DevicePool expects MQTT to cancel its context
 		run = false
 	}
 
-	go func() {
-		mq.toDp <- MqDpReqDiscovery{
-			Conn: mq.conn,
-		}
-	}()
+	if run {
+		go func() {
+			mq.toDp <- MqDpReqDiscovery{
+				Conn: mq.conn,
+			}
+		}()
+	}
 
 	for run {
 		select {
@@ -242,7 +235,21 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 			mqttHandleDpMsg(ctx, mq.conn, msg)
 		}
 	}
-	l = l.With("stage", "shutdown")
+
+	return mq.shutdown(ctx)
+}
+
+// shutdown stops the MQTT service. Its steps are:
+//
+//  1. Tell paho to not repopulate routes and subscriptions upon reconnect
+//  2. Query DevicePool for latest routes and subs
+//  3. Use the result to remove routes and subs
+//  4. Close toDp to signal there will be no more received messages
+//  5. Cancel DevicePool so it can publish remaining messages
+//  6. Wait until that's done through fromDp getting closed
+//  7. Disconnect and return
+func (mq *MQTTHandle) shutdown(ctx context.Context) error {
+	l := mq.logger.With("stage", "shutdown")
 	// step 1
 	l.Debug("no more intake")
 	close(mq.chNoMoreIntake)
@@ -296,7 +303,6 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 
 	l.Info("done")
 	return nil
-
 }
 
 func mqttHandleDpMsg(ctx context.Context, conn *autopaho.ConnectionManager, msg any) error {

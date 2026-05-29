@@ -181,7 +181,7 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 //  1. Handle remaining mailbox messages
 //  2. Update availability to offline
 //  3. Return
-func (dev Device) Subscribe(ctx context.Context) {
+func (dev Device) Subscribe(ctx context.Context) error {
 	l := dev.l
 	did := dev.md.DeviceID
 	l.Info("service is live")
@@ -220,7 +220,12 @@ func (dev Device) Subscribe(ctx context.Context) {
 			dev.handleMboxMsg(ctx, msg)
 		}
 	}
-	l = l.With("stage", "shutdown")
+	return dev.shutdown(ctx)
+}
+
+func (dev *Device) shutdown(ctx context.Context) error {
+	l := dev.l.With("stage", "shutdown")
+	did := dev.md.DeviceID
 
 	// step 1
 	l.Debug("drain mbox msgs")
@@ -246,7 +251,7 @@ func (dev Device) Subscribe(ctx context.Context) {
 	dev.Pool <- post
 
 	l.Info("done")
-	return
+	return nil
 }
 
 func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
