@@ -40,6 +40,7 @@ import (
 )
 
 const MQTTClientId = "miot2mqtt"
+const WaitMQTTUpSecs = 1
 
 var ErrMqttConnInit = errors.New("failed to initialize MQTT connection")
 var ErrMqttConnSub = errors.New("failed to subscribe to MQTT topic")
@@ -63,6 +64,7 @@ type MQTTHandle struct {
 	logger         *slog.Logger
 	chNoMoreIntake chan struct{}
 	cancelDp       context.CancelFunc
+	chConnUp       chan struct{}
 }
 
 type connUpArgs struct {
@@ -72,7 +74,7 @@ type connUpArgs struct {
 	ToDP    chan<- any
 }
 
-func mqttConnUp(ctx context.Context, args connUpArgs) {
+func mqttConnUp(ctx context.Context, args connUpArgs) error {
 	cm := args.ConnMan
 	router := args.Router
 	l := args.Logger
@@ -94,8 +96,7 @@ func mqttConnUp(ctx context.Context, args connUpArgs) {
 		},
 	})
 	if err != nil {
-		l.Error("subscribe to HA status", "reason", err)
-		return
+		return err
 	}
 
 	// ask DevicePool for routes and subscriptions
@@ -110,13 +111,13 @@ WaitForTopics:
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case devTopics, ok := <-chSubs:
 			if !ok {
 				// DevicePool is done responding
 				break WaitForTopics
 			}
-			for subTopic, _ := range devTopics.SubTopics {
+			for subTopic := range devTopics.SubTopics {
 				// append subs
 				subs = append(subs, paho.SubscribeOptions{
 					Topic: subTopic,
@@ -125,7 +126,7 @@ WaitForTopics:
 			}
 
 			// setup route
-			router.UnregisterHandler(devTopics.RouteGlob)
+			//router.UnregisterHandler(devTopics.RouteGlob)
 			router.RegisterHandler(devTopics.RouteGlob, devTopics.ForwardTo)
 		}
 	}
@@ -135,12 +136,9 @@ WaitForTopics:
 		Subscriptions: subs,
 	})
 	if err != nil {
-		l.Error("create subscription topics", "reason", err)
-		return
+		return err
 	}
-
-	l.Debug("created subscription topics", "count", len(subs))
-
+	return nil
 }
 
 func NewMQTT(
@@ -153,6 +151,7 @@ func NewMQTT(
 		l.Error("unroutable message", "topic", p.Topic, "payload", p.Payload)
 	})
 
+	chConnUp := make(chan struct{})
 	chNoMoreIntake := make(chan struct{})
 	cfg := autopaho.ClientConfig{
 		ServerUrls: []*url.URL{
@@ -163,20 +162,20 @@ func NewMQTT(
 		KeepAlive:                     30,
 		CleanStartOnInitialConnection: true,
 		SessionExpiryInterval:         60,
+		OnConnectionDown: func() bool {
+			l.Warn("connection down")
+			return true
+		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, connAck *paho.Connack) {
 			select {
 			case _, _ = <-chNoMoreIntake:
+				close(chConnUp)
 			default:
-				go func() {
-					ctxConnUp, cancel := context.WithTimeout(ctx, time.Second)
-					defer cancel()
-					mqttConnUp(ctxConnUp, connUpArgs{
-						ConnMan: cm,
-						Router:  router,
-						Logger:  l,
-						ToDP:    args.ToDp,
-					})
-				}()
+				select {
+				case chConnUp <- struct{}{}:
+				default:
+					l.Warn("connection up in progress")
+				}
 			}
 		},
 		OnConnectError: func(err error) {
@@ -205,6 +204,7 @@ func NewMQTT(
 		logger:         l,
 		chNoMoreIntake: chNoMoreIntake,
 		cancelDp:       args.CancelDp,
+		chConnUp:       chConnUp,
 	}, nil
 }
 
@@ -213,30 +213,64 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 	l := mq.logger
 	l.Info("service is live")
 	var run bool = true
-	if err := mq.conn.AwaitConnection(ctx); err != nil {
+
+	ctxWaitConn, cancelConn := context.WithTimeout(ctx, time.Second*WaitMQTTUpSecs)
+	defer cancelConn()
+	if err := mq.conn.AwaitConnection(ctxWaitConn); err != nil {
 		l.Error("connect to MQTT", "reason", err)
 		// DevicePool expects MQTT to cancel its context
-		run = false
+		// skip to DP shutdown
+		mq.shutdownDp(context.TODO())
+		return err
 	}
 
+	var wg sync.WaitGroup
 	if run {
-		go func() {
+		// force discovery
+		wg.Go(func() {
 			mq.toDp <- MqDpReqDiscovery{
 				Conn: mq.conn,
 			}
-		}()
+		})
+
+		// It is important that fromDp is constantly drained
+		// or DevicePool will block.
+		// Run in its own goroutine.
+		wg.Go(func() {
+			var run bool = true
+			for run {
+				select {
+				case <-ctx.Done():
+					run = false
+				case msg := <-mq.fromDp:
+					ctxMsg, cancelMsg := context.WithTimeout(ctx, time.Second)
+					defer cancelMsg()
+					mqttHandleDpMsg(ctxMsg, mq.conn, msg)
+				}
+			}
+		})
 	}
 
 	for run {
 		select {
+		case <-mq.chConnUp:
+			err := mqttConnUp(ctx, connUpArgs{
+				ConnMan: mq.conn,
+				Router:  mq.router,
+				Logger:  mq.logger,
+				ToDP:    mq.toDp,
+			})
+			if err != nil {
+				l.Error("setup MQTT connection", "reason", err)
+			}
 		case <-ctx.Done():
 			run = false
-		case msg := <-mq.fromDp:
-			mqttHandleDpMsg(ctx, mq.conn, msg)
 		}
 	}
-
-	return mq.shutdown(ctx)
+	wg.Wait()
+	ctxShutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return mq.shutdown(ctxShutdown)
 }
 
 // shutdown stops the MQTT service. Its steps are:
@@ -250,6 +284,7 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 //  7. Disconnect and return
 func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	l := mq.logger.With("stage", "shutdown")
+
 	// step 1
 	l.Debug("no more intake")
 	close(mq.chNoMoreIntake)
@@ -267,17 +302,38 @@ func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	// keep a copy around?
 	l.Debug("remove routes subs")
 	for devTopics := range chSubs {
-		for topic, _ := range devTopics.SubTopics {
+		for topic := range devTopics.SubTopics {
 			topics = append(topics, topic)
 		}
 		mq.router.UnregisterHandler(devTopics.RouteGlob)
 	}
-	_, err := mq.conn.Unsubscribe(context.TODO(), &paho.Unsubscribe{
+	_, err := mq.conn.Unsubscribe(ctx, &paho.Unsubscribe{
 		Topics: topics,
 	})
-	// TODO err
-	var _ = err
+	if err != nil {
+		l.Error("unsubscribe from topics", "reason", err)
+	}
 
+	// steps 4-6
+	ctxStopDp, cancelDp := context.WithTimeout(context.Background(), time.Second)
+	defer cancelDp()
+	mq.shutdownDp(ctxStopDp)
+
+	// step 7
+	/*l.Debug("disconnect")
+	ctxDisc, cancelDisc := context.WithTimeout(context.Background(), time.Second)
+	defer cancelDisc()
+	err = mq.conn.Disconnect(ctxDisc)
+	if err != nil {
+		l.Error("disconnect from MQTT", "reason", err)
+	}*/
+
+	l.Info("done")
+	return nil
+}
+
+func (mq *MQTTHandle) shutdownDp(ctx context.Context) {
+	l := mq.logger
 	// step 4
 	l.Debug("close toDp")
 	close(mq.toDp)
@@ -291,20 +347,17 @@ func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	l.Debug("wait fromDp")
 	for msg := range mq.fromDp {
 		wg.Go(func() {
-			mqttHandleDpMsg(context.TODO(), mq.conn, msg)
+			err := mqttHandleDpMsg(ctx, mq.conn, msg)
+			if err != nil {
+				l.Error("handle remaining message from device pool", "reason", err)
+			}
 		})
 	}
 	wg.Wait()
-
-	// step 7
-	l.Debug("disconnect")
-	err = mq.conn.Disconnect(context.TODO())
-	// TODO err
-
-	l.Info("done")
-	return nil
 }
 
+// mqttHandleDpMsg handles messages from DevicePool.
+// This only contains "Publish to MQTT" operation for now.
 func mqttHandleDpMsg(ctx context.Context, conn *autopaho.ConnectionManager, msg any) error {
 	switch msg := msg.(type) {
 	case DevMqPost:

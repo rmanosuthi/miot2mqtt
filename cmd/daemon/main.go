@@ -76,7 +76,7 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	devArgs := miot.LoadArgs{
@@ -142,18 +142,10 @@ func main() {
 		dp.Subscribe(ctxDp)
 	})
 
-	select {
-	case <-ctx.Done():
-		l.Info("stopping")
-		cancelMq()
-		wg.Wait()
-		l.Info("terminated")
-		os.Exit(0)
-	case <-ctxMq.Done():
-		l.Error("MQ exited early")
-		os.Exit(1)
-	case <-ctxDp.Done():
-		l.Error("Devices exited early")
-		os.Exit(1)
-	}
+	<-ctx.Done()
+	l.Info("stopping")
+	cancelMq()
+	wg.Wait()
+	l.Info("terminated")
+	os.Exit(0)
 }

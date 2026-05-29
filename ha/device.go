@@ -27,7 +27,6 @@ import (
 	paho "github.com/eclipse/paho.golang/paho"
 )
 
-const deviceMailboxSize = 8
 const HintFan = "fan"
 
 var ErrDevNoHint = errors.New("device has no class hint in spec")
@@ -98,7 +97,7 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		maps.Insert(stateTopics, maps.All(ch.StateTopics))
 	}
 
-	mbox := make(chan any, deviceMailboxSize)
+	mbox := make(chan any)
 
 	resp := DpMqConnInfo{
 		DID:       did,
@@ -130,12 +129,8 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 }
 
 func (dev *Device) Post(msg any) error {
-	select {
-	case dev.mbox <- msg:
-		return nil
-	default:
-		return ErrChFull
-	}
+	dev.mbox <- msg
+	return nil
 }
 
 // components gets a [Component] group to attach to a device.

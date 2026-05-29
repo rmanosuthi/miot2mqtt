@@ -84,6 +84,25 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 		})
 	}
 
+	// keep draining messages from devs
+	wg.Go(func() {
+		var run bool = true
+		for run {
+			select {
+			case <-ctx.Done():
+				run = false
+			case ev := <-dp.fromDevs:
+				ctxDevEv, cancelEv := context.WithTimeout(ctx, time.Second)
+				defer cancelEv()
+				err := dp.handleFromDevs(ctxDevEv, ev)
+				if err != nil {
+					l.Error("receive from devices", "msg", ev, "reason", err)
+					continue
+				}
+			}
+		}
+	})
+
 	l.Info("service is live")
 	var run bool = true
 	for run {
@@ -92,7 +111,6 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			run = false
 		case ev, ok := <-mqRecv:
 			if !ok {
-				l.Debug("mq has probably shut down")
 				run = false
 				continue
 			}
@@ -108,23 +126,17 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			case MqDpReqDiscovery:
 				l.Debug("from mq: discovery")
 				for _, dev := range dp.devs {
-					// request device discovery
-					err := dev.Post(DpDevReqDiscovery(ev))
-					if err != nil {
-						l.Error("request device discovery", "reason", err)
-					}
-					// device will reply later
+					go func() {
+						// request device discovery
+						err := dev.Post(DpDevReqDiscovery(ev))
+						if err != nil {
+							l.Error("request device discovery", "reason", err)
+						}
+						// device will reply later
+					}()
 				}
 			default:
 				l.Error("unknown mq event", "msg", ev)
-				continue
-			}
-		case ev := <-dp.fromDevs:
-			ctxDevEv, cancelEv := context.WithTimeout(ctx, time.Second)
-			defer cancelEv()
-			err := dp.handleFromDevs(ctxDevEv, ev)
-			if err != nil {
-				l.Error("receive from devices", "msg", ev, "reason", err)
 				continue
 			}
 		}
@@ -188,7 +200,7 @@ func (dp *DevicePool) handleFromDevs(ctx context.Context, ev any) error {
 	case DevMqPost:
 		select {
 		case <-ctx.Done():
-			return ErrChFull
+			return ctx.Err()
 		case dp.mqSend <- ev:
 			return nil
 		}
