@@ -39,7 +39,7 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 	}, nil
 }
 
-func (dev *Device) handleEvent(ctx context.Context, topic string, payload []byte) (DevMqPost, error) {
+func (dev *Device) handleSetProp(ctx context.Context, topic string, payload []byte) (DevMqPost, error) {
 	var val json.RawMessage = json.RawMessage(payload)
 
 	urn, ok := dev.CommandTopics[topic]

@@ -83,49 +83,35 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			dev.Subscribe(ctxDev)
 		})
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			l := l.With("stage", "shutdown")
 
-			// step 1
-			l.Debug("close mboxes")
-			for _, dev := range dp.devs {
-				close(dev.mbox)
-			}
-
-			// step 2
-			l.Debug("cancel devs")
-			cancelDev()
-
-			// devs used to close this channel but
-			// that led to panics.
-			// close it here for now.
-			go func() {
-				wg.Wait()
-				close(dp.fromDevs)
-			}()
-			// step 3
-			l.Debug("drain pub reqs")
-			for ev := range dp.fromDevs {
-				ctxEv, cancelEv := context.WithTimeout(context.Background(), time.Second)
+	// keep draining messages from devs
+	wg.Go(func() {
+		var run bool = true
+		for run {
+			select {
+			case <-ctx.Done():
+				run = false
+			case ev := <-dp.fromDevs:
+				ctxDevEv, cancelEv := context.WithTimeout(ctx, time.Second)
 				defer cancelEv()
-				err := dp.handleFromDevs(ctxEv, ev)
+				err := dp.handleFromDevs(ctxDevEv, ev)
 				if err != nil {
-					l.Error("msg from dev", "reason", err)
+					l.Error("receive from devices", "msg", ev, "reason", err)
+					continue
 				}
 			}
+		}
+	})
 
-			// step 4
-			l.Debug("close mqSend")
-			close(mqSend)
-
-			// step 5
-			l.Info("done")
-			return nil
+	l.Info("service is live")
+	var run bool = true
+	for run {
+		select {
+		case <-ctx.Done():
+			run = false
 		case ev, ok := <-mqRecv:
 			if !ok {
-				l.Debug("mq has probably shut down")
+				run = false
 				continue
 			}
 			switch ev := ev.(type) {
@@ -140,27 +126,73 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			case MqDpReqDiscovery:
 				l.Debug("from mq: discovery")
 				for _, dev := range dp.devs {
-					// request device discovery
-					err := dev.Post(DpDevReqDiscovery(ev))
-					if err != nil {
-						l.Error("request device discovery", "reason", err)
-					}
-					// device will reply later
+					go func() {
+						// request device discovery
+						err := dev.Post(DpDevReqDiscovery(ev))
+						if err != nil {
+							l.Error("request device discovery", "reason", err)
+						}
+						// device will reply later
+					}()
 				}
 			default:
 				l.Error("unknown mq event", "msg", ev)
 				continue
 			}
-		case ev := <-dp.fromDevs:
-			ctxDevEv, cancelEv := context.WithTimeout(ctx, time.Second)
-			defer cancelEv()
-			err := dp.handleFromDevs(ctxDevEv, ev)
-			if err != nil {
-				l.Error("receive from devices", "msg", ev, "reason", err)
-				continue
-			}
 		}
 	}
+	return dp.shutdown(ctx, dpShutdownArgs{
+		CancelDevs: cancelDev,
+		WgDevs:     &wg,
+		MQSend:     mqSend,
+	})
+}
+
+type dpShutdownArgs struct {
+	CancelDevs context.CancelFunc
+	WgDevs     *sync.WaitGroup
+	MQSend     chan<- any
+}
+
+func (dp *DevicePool) shutdown(ctx context.Context, args dpShutdownArgs) error {
+	l := dp.logger.With("stage", "shutdown")
+
+	// step 1
+	l.Debug("close mboxes")
+	for _, dev := range dp.devs {
+		close(dev.mbox)
+	}
+
+	// step 2
+	l.Debug("cancel devs")
+	args.CancelDevs()
+
+	// devs used to close this channel but
+	// that led to panics.
+	// close it here for now.
+	go func() {
+		args.WgDevs.Wait()
+		close(dp.fromDevs)
+	}()
+	// step 3
+	l.Debug("drain pub reqs")
+	for ev := range dp.fromDevs {
+		ctxEv, cancelEv := context.WithTimeout(context.Background(), time.Second)
+		defer cancelEv()
+		err := dp.handleFromDevs(ctxEv, ev)
+		if err != nil {
+			l.Error("msg from dev", "reason", err)
+			continue
+		}
+	}
+
+	// step 4
+	l.Debug("close mqSend")
+	close(args.MQSend)
+
+	// step 5
+	l.Info("done")
+	return nil
 }
 
 func (dp *DevicePool) handleFromDevs(ctx context.Context, ev any) error {
@@ -168,7 +200,7 @@ func (dp *DevicePool) handleFromDevs(ctx context.Context, ev any) error {
 	case DevMqPost:
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("DP -> MQ blocked!")
+			return ctx.Err()
 		case dp.mqSend <- ev:
 			return nil
 		}

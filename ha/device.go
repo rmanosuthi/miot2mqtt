@@ -129,12 +129,8 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 }
 
 func (dev *Device) Post(msg any) error {
-	select {
-	case dev.mbox <- msg:
-		return nil
-	default:
-		return ErrChFull
-	}
+	dev.mbox <- msg
+	return nil
 }
 
 // components gets a [Component] group to attach to a device.
@@ -180,10 +176,10 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 //  1. Handle remaining mailbox messages
 //  2. Update availability to offline
 //  3. Return
-func (dev Device) Subscribe(ctx context.Context) {
+func (dev Device) Subscribe(ctx context.Context) error {
 	l := dev.l
 	did := dev.md.DeviceID
-	l.Info("device online")
+	l.Info("service is live")
 	// make each component online
 	cmpsOnline := make(map[string][]byte)
 	for _, ch := range dev.components {
@@ -193,7 +189,8 @@ func (dev Device) Subscribe(ctx context.Context) {
 		DID:     did,
 		Payload: cmpsOnline,
 	}
-	for {
+	var run bool = true
+	for run {
 		select {
 		case <-dev.ticker.C:
 			l.Debug("report")
@@ -207,36 +204,49 @@ func (dev Device) Subscribe(ctx context.Context) {
 
 			dev.Pool <- report
 		case <-ctx.Done():
-			l := l.With("stage", "shutdown")
-
-			// step 1
-			l.Debug("drain mbox msgs")
-			for msg := range dev.mbox {
-				dev.handleMboxMsg(context.TODO(), msg)
-			}
-
-			// step 2
-			l.Debug("update avail offline")
-			post := DevMqPost{
-				DID:     did,
-				Payload: make(map[string][]byte),
-			}
-			for _, cmp := range dev.components {
-				post.Payload[cmp.AvailTopic] = []byte("offline")
-			}
-			dev.Pool <- post
-
-			l.Info("done")
-			return
+			run = false
 		case msg, ok := <-dev.mbox:
 			if !ok {
 				l.Debug("mailbox closed")
+				run = false
 				continue
 			}
 			l.Debug("new message")
 			dev.handleMboxMsg(ctx, msg)
 		}
 	}
+	return dev.shutdown(ctx)
+}
+
+func (dev *Device) shutdown(ctx context.Context) error {
+	l := dev.l.With("stage", "shutdown")
+	did := dev.md.DeviceID
+
+	// step 1
+	l.Debug("drain mbox msgs")
+	ctxDrain, cancelDrain := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancelDrain()
+	for msg := range dev.mbox {
+		err := dev.handleMboxMsg(ctxDrain, msg)
+		if err != nil {
+			l.Error("mailbox drain", "reason", err)
+			continue
+		}
+	}
+
+	// step 2
+	l.Debug("update avail offline")
+	post := DevMqPost{
+		DID:     did,
+		Payload: make(map[string][]byte),
+	}
+	for _, cmp := range dev.components {
+		post.Payload[cmp.AvailTopic] = []byte("offline")
+	}
+	dev.Pool <- post
+
+	l.Info("done")
+	return nil
 }
 
 func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
@@ -247,14 +257,19 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	case MqDevPublish:
 		l.Debug("publish")
 		pub := msg
-		ctxEv, cancelEv := context.WithTimeout(ctx, time.Second)
-		defer cancelEv()
-		post, err := dev.handleEvent(ctxEv, pub.Topic, pub.Payload)
+		ctxSet, cancelSet := context.WithTimeout(ctx, time.Second)
+		defer cancelSet()
+		post, err := dev.handleSetProp(ctxSet, pub.Topic, pub.Payload)
 		if err != nil {
 			return errors.Join(ErrDevEv, err)
 		}
 
-		dev.Pool <- post
+		select {
+		case dev.Pool <- post:
+			return nil
+		default:
+			return ErrChFull
+		}
 	case DpDevReqDiscovery:
 		l.Debug("discovery")
 		ctxDecl, cancelDecl := context.WithTimeout(ctx, time.Second)
@@ -264,14 +279,19 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 			return err
 		}
 		l.Debug("created discovery payload", "msg", string(decl))
-		dev.Pool <- DevMqPost{
+		post := DevMqPost{
 			DID: did,
 			Payload: map[string][]byte{
 				dev.rsv.ResolveDiscovery(did): decl,
 			},
 		}
+		select {
+		case dev.Pool <- post:
+			return nil
+		default:
+			return ErrChFull
+		}
 	default:
 		return fmt.Errorf("unknown message: %v", msg)
 	}
-	return nil
 }

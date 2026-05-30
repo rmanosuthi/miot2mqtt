@@ -76,7 +76,7 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	devArgs := miot.LoadArgs{
@@ -143,7 +143,9 @@ func main() {
 	})
 
 	<-ctx.Done()
+	l.Info("stopping")
 	cancelMq()
 	wg.Wait()
 	l.Info("terminated")
+	os.Exit(0)
 }
