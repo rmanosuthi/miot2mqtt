@@ -58,10 +58,10 @@ type Device struct {
 }
 
 type DeviceArgs struct {
-	Resolver   *discovery.Resolver
-	MiotDevice miot.Device
-	Logger     *slog.Logger
-	Pool       chan<- any
+	Resolver     *discovery.Resolver
+	MiotDevice   miot.Device
+	GlobalLogger *slog.Logger
+	Pool         chan<- any
 }
 
 func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
@@ -71,7 +71,14 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
-	l := args.Logger.With("did", did, "alias", md.Alias, "model", md.Model)
+
+	var l *slog.Logger
+	l = args.GlobalLogger.WithGroup("device")
+	if md.Alias == "" {
+		l = l.With("did", did)
+	} else {
+		l = l.With("did", did, "alias", md.Alias)
+	}
 	deviceTopic := args.Resolver.GetDeviceTopic(did)
 
 	var components []discovery.ComponentHandle
@@ -82,8 +89,8 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
 		if err != nil {
 			if errors.Is(err, discovery.ErrNoMandatoryProp) {
-				if !cmp.Mandatory() {
-					l.Debug("no optional component", "name", cmp.Alias())
+				if !cmp.Mandatory {
+					l.Debug("no optional component", "name", cmp.Alias)
 					continue
 				} else {
 					return Device{}, fmt.Errorf("component attach: %w", err)
@@ -144,8 +151,8 @@ func components(md *miot.Device) ([]discovery.Component, error) {
 	switch hint {
 	case HintFan:
 		return []discovery.Component{
-			&fan.Fan{},
-			&fan.HorzAngle{},
+			fan.Fan,
+			fan.HorzAngle,
 		}, nil
 	default:
 		return nil, ErrDevUnsupported{

@@ -104,16 +104,16 @@ type LoadArgs struct {
 	// Devices to be added on [LoadDevices].
 	// Successfully added devices will be committed to the config file.
 	AddDevices []AddDeviceRequest
-	// Logger to be used during load.
-	Logger *slog.Logger
+	// GlobalLogger to be used during load.
+	GlobalLogger *slog.Logger
 }
 
 type miotDeviceArgs struct {
-	DeviceID wire.DeviceID
-	Prefix   *os.Root
-	Global   *config.Global
-	Device   intermediateDevice
-	Logger   *slog.Logger
+	DeviceID     wire.DeviceID
+	Prefix       *os.Root
+	Global       *config.Global
+	Device       intermediateDevice
+	GlobalLogger *slog.Logger
 }
 
 // newDevice initializes a MiotDevice.
@@ -126,7 +126,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	// but keep it simple instead of special casing it
 	dev := &args.Device
 	spec := &dev.Spec
-	l := args.Logger.With("did", args.DeviceID, "alias", dev.Alias, "addr", dev.IPAddr, "model", dev.Model)
+	l := args.GlobalLogger.WithGroup("miot").With("did", args.DeviceID, "addr", dev.IPAddr)
 
 	// is the token valid?
 	token := wire.Token{}
@@ -150,7 +150,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	var dialer net.Dialer
 	pingCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	pong, err := ping(pingCtx, &dialer, addrPort, args.Logger)
+	pong, err := ping(pingCtx, &dialer, addrPort, args.GlobalLogger)
 	if err != nil {
 		l.Warn("device unreachable", "reason", err)
 		err = errors.Join(ErrDevicePing, err)
@@ -222,7 +222,7 @@ func populateSpec(
 					},
 				},
 			}
-			err := config.Populate(&spec, popArgs, args.Logger)
+			err := config.Populate(&spec, popArgs, args.GlobalLogger)
 			return spec, err
 		}
 	}
@@ -281,7 +281,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
-	}, args.Logger)
+	}, args.GlobalLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	// are there new devices to be added too?
 	if len(args.AddDevices) > 0 {
 		for _, dev := range args.AddDevices {
-			dev, err := ResolveDevice(ctx, dev, args.Logger)
+			dev, err := ResolveDevice(ctx, dev, args.GlobalLogger)
 			if err != nil {
 				return nil, err
 			}
@@ -308,7 +308,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Prefix: args.Prefix,
 			Global: args.Global,
 			Hint:   nil,
-		}, args.Logger)
+		}, args.GlobalLogger)
 		if err != nil {
 			return nil, ErrDeviceAdd
 		}
@@ -336,7 +336,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 				Download: nil,
 			},
 		}
-		err := config.Load(&spec, specArgs, args.Logger)
+		err := config.Load(&spec, specArgs, args.GlobalLogger)
 		if err != nil && errors.Is(err, fs.ErrNotExist) {
 			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
 			deferredDevices[did] = dev
@@ -362,7 +362,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Global: args.Global,
 			Hint:   nil,
 		}
-		err = config.Populate(&ms, metaspecsArgs, args.Logger)
+		err = config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
 		}
@@ -393,11 +393,11 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 
 	for did, dev := range deviceModels {
 		devArgs := miotDeviceArgs{
-			DeviceID: did,
-			Prefix:   args.Prefix,
-			Global:   args.Global,
-			Device:   dev,
-			Logger:   args.Logger,
+			DeviceID:     did,
+			Prefix:       args.Prefix,
+			Global:       args.Global,
+			Device:       dev,
+			GlobalLogger: args.GlobalLogger,
 		}
 		wg.Go(func() {
 			dev, err := newDevice(initCtx, devArgs)

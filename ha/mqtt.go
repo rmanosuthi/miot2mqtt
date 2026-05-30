@@ -47,13 +47,13 @@ var ErrMqttConnSub = errors.New("failed to subscribe to MQTT topic")
 var ErrHaDevInit = errors.New("failed to initialize Home Assistant device")
 
 type MQTTArgs struct {
-	BrokerURL url.URL
-	Username  string
-	Password  string
-	Logger    *slog.Logger
-	FromDp    <-chan any
-	ToDp      chan<- any
-	CancelDp  context.CancelFunc
+	BrokerURL    url.URL
+	Username     string
+	Password     string
+	GlobalLogger *slog.Logger
+	FromDp       <-chan any
+	ToDp         chan<- any
+	CancelDp     context.CancelFunc
 }
 
 type MQTTHandle struct {
@@ -145,7 +145,7 @@ func NewMQTT(
 	ctx context.Context,
 	args MQTTArgs,
 ) (MQTTHandle, error) {
-	l := args.Logger
+	l := args.GlobalLogger.WithGroup("mqtt")
 	router := paho.NewStandardRouterWithDefault(func(p *paho.Publish) {
 		// our routing handlers should handle everything
 		l.Error("unroutable message", "topic", p.Topic, "payload", p.Payload)

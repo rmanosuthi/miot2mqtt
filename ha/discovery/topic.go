@@ -41,7 +41,7 @@ func (dt DeviceTopic) Glob() string {
 }
 
 func (dt DeviceTopic) Component(cmp Component) ComponentTopic {
-	return ComponentTopic(string(dt) + "/" + cmp.Platform() + "/" + Canon(cmp))
+	return ComponentTopic(string(dt) + "/" + cmp.Platform + "/" + Canon(cmp))
 }
 
 func (ct ComponentTopic) AsRoot() string {

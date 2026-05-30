@@ -56,3 +56,7 @@ func (urn *URN) MarshalText() ([]byte, error) {
 func (urn *URN) String() string {
 	return urn.raw.Value()
 }
+
+func (urn URN) LogValue() slog.Value {
+	return slog.StringValue(urn.raw.Value())
+}

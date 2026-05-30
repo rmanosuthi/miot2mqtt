@@ -23,10 +23,10 @@ type DevicePool struct {
 }
 
 type DevicePoolArgs struct {
-	FromMQTT <-chan any
-	ToMQTT   chan<- any
-	Resolver *discovery.Resolver
-	Logger   *slog.Logger
+	FromMQTT     <-chan any
+	ToMQTT       chan<- any
+	Resolver     *discovery.Resolver
+	GlobalLogger *slog.Logger
 }
 
 func NewDevicePool(ctx context.Context, mDevs miot.MapDevices, args DevicePoolArgs) (DevicePool, error) {
@@ -35,10 +35,10 @@ func NewDevicePool(ctx context.Context, mDevs miot.MapDevices, args DevicePoolAr
 
 	for did, md := range mDevs {
 		dev, err := NewDevice(ctx, DeviceArgs{
-			Resolver:   args.Resolver,
-			MiotDevice: md,
-			Logger:     args.Logger,
-			Pool:       chDevs,
+			Resolver:     args.Resolver,
+			MiotDevice:   md,
+			GlobalLogger: args.GlobalLogger,
+			Pool:         chDevs,
 		})
 		if err != nil {
 			if err, ok := errors.AsType[ErrDevUnsupported](err); ok {
@@ -56,7 +56,7 @@ func NewDevicePool(ctx context.Context, mDevs miot.MapDevices, args DevicePoolAr
 		fromDevs: chDevs,
 		mqSend:   args.ToMQTT,
 		mqRecv:   args.FromMQTT,
-		logger:   args.Logger,
+		logger:   args.GlobalLogger.WithGroup("pool"),
 	}, nil
 }
 

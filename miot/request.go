@@ -32,7 +32,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"math/rand/v2"
 	"net/netip"
@@ -55,7 +54,7 @@ func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN,
 	req := make(prop.GetPropsReq)
 	for urn, propKey := range dev.PropKeys {
 		if predicate(urn, propKey) {
-			slog.Debug("GetProperties", "urn", urn)
+			dev.l.Debug("GetProperties", "urn", urn)
 			req[propKey] = &prop.GetProp{}
 		}
 	}
@@ -73,7 +72,7 @@ func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN,
 // mutating req in the process.
 func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) error {
 	if dev.timeStart == nil {
-		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
+		dev.l.Debug("device uninit")
 		return ErrDeviceUninit
 	}
 
@@ -130,7 +129,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	}
 
 	if packetRecv.Timestamp < timestamp {
-		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
+		dev.l.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
 		return dev.UpdateTimestamp(packetRecv.Timestamp)
 	}
 
@@ -166,7 +165,7 @@ func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req *prop.
 // mutating req in the process.
 func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) error {
 	if dev.timeStart == nil {
-		slog.Debug("device uninit", "device", dev.DeviceID, "addr", dev.Addr)
+		dev.l.Debug("device uninit")
 		return ErrDeviceUninit
 	}
 
@@ -223,7 +222,7 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	}
 
 	if packetRecv.Timestamp < timestamp {
-		slog.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
+		dev.l.Warn("timestamp went backwards!", "prev", timestamp, "curr", packetRecv.Timestamp)
 		return dev.UpdateTimestamp(packetRecv.Timestamp)
 	}
 

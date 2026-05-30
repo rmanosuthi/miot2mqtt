@@ -80,11 +80,11 @@ func main() {
 	defer stop()
 
 	devArgs := miot.LoadArgs{
-		Prefix:     pfx,
-		Global:     &gc,
-		Strict:     false,
-		AddDevices: addDevs,
-		Logger:     l,
+		Prefix:       pfx,
+		Global:       &gc,
+		Strict:       false,
+		AddDevices:   addDevs,
+		GlobalLogger: l,
 	}
 	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {
@@ -105,14 +105,15 @@ func main() {
 		l.Error("parse url", "reason", err)
 		os.Exit(1)
 	}
+
 	mqttArgs := ha.MQTTArgs{
-		BrokerURL: *broker,
-		Username:  gc.MQTT.Username,
-		Password:  gc.MQTT.Password,
-		Logger:    l.With("cmp", "mq"),
-		FromDp:    chDpMqtt,
-		ToDp:      chMqttDp,
-		CancelDp:  cancelDp,
+		BrokerURL:    *broker,
+		Username:     gc.MQTT.Username,
+		Password:     gc.MQTT.Password,
+		GlobalLogger: l,
+		FromDp:       chDpMqtt,
+		ToDp:         chMqttDp,
+		CancelDp:     cancelDp,
 	}
 	mq, err := ha.NewMQTT(ctx, mqttArgs)
 	if err != nil {
@@ -121,10 +122,10 @@ func main() {
 	}
 
 	dpArgs := ha.DevicePoolArgs{
-		FromMQTT: chMqttDp,
-		ToMQTT:   chDpMqtt,
-		Resolver: &rsv,
-		Logger:   l.With("cmp", "pool"),
+		FromMQTT:     chMqttDp,
+		ToMQTT:       chDpMqtt,
+		Resolver:     &rsv,
+		GlobalLogger: l,
 	}
 	dp, err := ha.NewDevicePool(ctx, devices, dpArgs)
 	if err != nil {

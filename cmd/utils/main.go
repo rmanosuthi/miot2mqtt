@@ -74,10 +74,10 @@ func main() {
 	}
 
 	devArgs := miot.LoadArgs{
-		Prefix: pfx,
-		Global: gc,
-		Strict: false,
-		Logger: l,
+		Prefix:       pfx,
+		Global:       gc,
+		Strict:       false,
+		GlobalLogger: l,
 	}
 	devices, err := miot.LoadDevices(ctx, devArgs)
 	if err != nil {
