@@ -126,7 +126,7 @@ WaitForTopics:
 			}
 
 			// setup route
-			//router.UnregisterHandler(devTopics.RouteGlob)
+			router.UnregisterHandler(devTopics.RouteGlob)
 			router.RegisterHandler(devTopics.RouteGlob, devTopics.ForwardTo)
 		}
 	}
@@ -325,13 +325,13 @@ func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	mq.shutdownDp(ctxStopDp)
 
 	// step 7
-	/*l.Debug("disconnect")
+	l.Debug("disconnect")
 	ctxDisc, cancelDisc := context.WithTimeout(context.Background(), time.Second)
 	defer cancelDisc()
 	err = mq.conn.Disconnect(ctxDisc)
 	if err != nil {
 		l.Error("disconnect from MQTT", "reason", err)
-	}*/
+	}
 
 	l.Info("done")
 	return nil
