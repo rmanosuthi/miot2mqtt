@@ -192,7 +192,12 @@ func NewMQTT(
 		},
 	}
 
-	conn, err := autopaho.NewConnection(ctx, cfg)
+	// paho stores the context and handing it ctx
+	// would close the connection on cancellation.
+	//
+	// We want to do cleanup on shutdown so
+	// just pass it a background context.
+	conn, err := autopaho.NewConnection(context.Background(), cfg)
 	if err != nil {
 		return MQTTHandle{}, err
 	}
