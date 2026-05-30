@@ -80,26 +80,27 @@ type ComponentHandle struct {
 // A component is simply marked as online whenever Device starts and
 // offline when the program exits.
 // This will most likely change in the future.
-type Component interface {
+// TODO update doc
+type Component struct {
 	// Mandatory tells the resolver this component's initialization must succeed,
 	// else the entire device's initialization will be aborted.
-	Mandatory() bool
+	Mandatory bool
 	// Alias is the user-facing name of the component.
-	Alias() string
+	Alias string
 	// Platform is an interaction UI group on HA.
 	// Example: "fan" has a window allowing change of fan speed,
 	// oscillation, and toggling on/off.
 	//
 	// Meanwhile, a "switch" is simply a toggle.
-	Platform() string
+	Platform string
 	// Declare returns property declarations for a component.
 	// These are necessary for creating a [ComponentHandle];
 	// see [AttachComponent].
-	Declare() PropDecls
+	Properties PropDecls
 }
 
 func Canon(cmp Component) string {
-	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias(), "_"))
+	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias, "_"))
 	return canon
 }
 
@@ -116,18 +117,18 @@ func Canon(cmp Component) string {
 // it may not be needed.
 func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
 	componentTopic := dt.Component(cmp)
-	platform := cmp.Platform()
+	platform := cmp.Platform
 	did := dev.DeviceID
 	commandTopics := make(map[string]config.URN)
 	stateTopics := make(map[config.URN]string)
 
-	decls := cmp.Declare()
+	decls := cmp.Properties
 	cmpDiscov := make(ComponentDiscovery)
 	root := componentTopic.AsRoot()
 
 	cmpDiscov["unique_id"] = UniqueID(did, platform, Canon(cmp))
 	cmpDiscov["platform"] = platform
-	cmpDiscov["name"] = cmp.Alias()
+	cmpDiscov["name"] = cmp.Alias
 	cmpDiscov["~"] = root
 	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 

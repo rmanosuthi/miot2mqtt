@@ -89,8 +89,8 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
 		if err != nil {
 			if errors.Is(err, discovery.ErrNoMandatoryProp) {
-				if !cmp.Mandatory() {
-					l.Debug("no optional component", "name", cmp.Alias())
+				if !cmp.Mandatory {
+					l.Debug("no optional component", "name", cmp.Alias)
 					continue
 				} else {
 					return Device{}, fmt.Errorf("component attach: %w", err)
@@ -151,8 +151,8 @@ func components(md *miot.Device) ([]discovery.Component, error) {
 	switch hint {
 	case HintFan:
 		return []discovery.Component{
-			&fan.Fan{},
-			&fan.HorzAngle{},
+			fan.Fan,
+			fan.HorzAngle,
 		}, nil
 	default:
 		return nil, ErrDevUnsupported{
