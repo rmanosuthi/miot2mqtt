@@ -24,12 +24,24 @@ const (
 	StatusDebug    = "debug"
 )
 
+var ErrDeviceResolve = errors.New("resolve device")
 var ErrDeviceDig = errors.New("failed to get device info")
 var ErrNoMetaspec = errors.New("model has no metaspec")
 
-type resolveDeviceResult struct {
-	config.Device
-	DeviceID wire.DeviceID
+// ResolvedDevice contains almost all information
+// necessary to operate on a device except for the spec's version.
+type ResolvedDevice struct {
+	Info Info
+	// Do not access this field directly.
+	// Call [ResolvedDevice.WithVersion] to produce a valid config.
+	cfgDev config.Device
+}
+
+func (rd *ResolvedDevice) WithVersion(meta *config.Metaspec) config.Device {
+	newDev := rd.cfgDev
+
+	newDev.Version = meta.Version
+	return newDev
 }
 
 type miQueryInfo struct {
@@ -116,13 +128,17 @@ func ResolveFromIPToken(
 		return Info{}, err
 	}
 
-	return dig(ctx, digArgs{
+	info, err := dig(ctx, digArgs{
 		deviceId:  pong.DeviceID,
 		dialer:    dialer,
 		addr:      addrPort,
 		timestamp: timestamp,
 		token:     token,
 	})
+	if err != nil {
+		return Info{}, errors.Join(ErrDeviceDig, err)
+	}
+	return info, err
 }
 
 type digArgs struct {
@@ -145,7 +161,7 @@ func dig(ctx context.Context, args digArgs) (Info, error) {
 	var payload bytes.Buffer
 	jsonBytes, err := json.Marshal(query)
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceDig, err)
+		return Info{}, err
 	}
 	payload.Write(jsonBytes)
 	payload.WriteByte(0)
@@ -158,34 +174,35 @@ func dig(ctx context.Context, args digArgs) (Info, error) {
 
 	packetSend, err := token.Marshal(&msg)
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceDial, err)
+		return Info{}, err
 	}
 
 	conn, err := dialer.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceDial, err)
+		return Info{}, err
 	}
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceSend, err)
+		return Info{}, err
 	}
 
 	var buf [wire.MaxPayloadSize]byte
 	n, err := conn.Read(buf[:])
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceRecv, err)
+		return Info{}, err
 	}
 
 	packetRecv, err := token.Unmarshal(buf[0:n])
 	if err != nil {
-		return Info{}, errors.Join(ErrDeviceRecv, err)
+		return Info{}, err
 	}
 
 	infoResp := new(miRespInfo)
 	err = json.Unmarshal(packetRecv.Payload, infoResp)
 	if err != nil {
+		slog.Debug("dig unmarshal fail", "reason", err, "payload", string(packetRecv.Payload))
 		return Info{}, err
 	}
 
@@ -269,50 +286,57 @@ func (dev *Device) Info(ctx context.Context) (Info, error) {
 		return Info{}, err
 	}
 
-	return dig(ctx, digArgs{
+	info, err := dig(ctx, digArgs{
 		deviceId:  dev.DeviceID,
 		dialer:    &dev.dialer,
 		addr:      dev.Addr,
 		timestamp: tsp,
 		token:     &dev.Token,
 	})
+	if err != nil {
+		return Info{}, errors.Join(ErrDeviceDig, err)
+	}
+	return info, nil
 }
 
-// ResolveDevice generates a [config.Device]
+// ResolveDevice returns information about a device
 // given an unparsed IP address and token.
 //
 // See [ResolveFromIPToken] for a low-level equivalent.
-func ResolveDevice(ctx context.Context, adr AddDeviceRequest, logger *slog.Logger) (resolveDeviceResult, error) {
-	var res resolveDeviceResult
+func ResolveDevice(ctx context.Context, adr AddDeviceRequest, logger *slog.Logger) (ResolvedDevice, error) {
+	var cfgDev config.Device
 
 	addr, err := netip.ParseAddr(adr.IPAddr)
 	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
+		return ResolvedDevice{}, errors.Join(ErrDeviceResolve, err)
 	}
 
 	var tokenBytes [16]byte
 	tokenLen, err := hex.Decode(tokenBytes[:], []byte(adr.Token))
 	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
+		return ResolvedDevice{}, errors.Join(ErrDeviceResolve, err)
 	}
 	if tokenLen != wire.TokenLen {
-		return res, fmt.Errorf("%w: wrong token len %v", ErrDeviceInit, err)
+		return ResolvedDevice{}, fmt.Errorf("%w: wrong token len %v", ErrDeviceResolve, err)
 	}
 	token, err := wire.NewToken(tokenBytes)
 	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
+		return ResolvedDevice{}, errors.Join(ErrDeviceResolve, err)
 	}
 
 	devInfo, err := ResolveFromIPToken(ctx, addr, token, logger)
 	if err != nil {
-		return res, errors.Join(ErrDeviceInit, err)
+		return ResolvedDevice{}, errors.Join(ErrDeviceResolve, err)
 	}
 
-	res.IPAddr = addr
-	res.Model = devInfo.Model
-	res.Token = adr.Token
-	res.DeviceID = devInfo.DeviceID
-	res.Version = 1
-	res.Enabled = true
-	return res, nil
+	cfgDev.IPAddr = addr
+	cfgDev.Model = devInfo.Model
+	cfgDev.Token = adr.Token
+	// invalid version, deal with this later
+	cfgDev.Version = 0
+	cfgDev.Enabled = true
+	return ResolvedDevice{
+		cfgDev: cfgDev,
+		Info:   devInfo,
+	}, nil
 }
