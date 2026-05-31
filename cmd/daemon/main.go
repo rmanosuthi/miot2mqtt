@@ -79,11 +79,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	var newDevs config.Devices
+	if len(addDevs) > 0 {
+		newDevs, err = miot.DevicesToAdd(ctx, miot.AddDeviceArgs{
+			Prefix:       pfx,
+			Global:       &gc,
+			GlobalLogger: l,
+			Reqs:         addDevs,
+		})
+		if err != nil {
+			l.Error("add new devices", "reason", err)
+			os.Exit(1)
+		}
+	}
+
 	devArgs := miot.LoadArgs{
 		Prefix:       pfx,
 		Global:       &gc,
 		Strict:       false,
-		AddDevices:   addDevs,
+		MergeWith:    newDevs,
 		GlobalLogger: l,
 	}
 	devices, err := miot.LoadDevices(ctx, devArgs)

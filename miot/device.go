@@ -1,14 +1,17 @@
 package miot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -91,6 +94,13 @@ func (dev *Device) PropName(n string) (config.SpecProp, bool) {
 	return config.SpecProp{}, false
 }
 
+type AddDeviceArgs struct {
+	Prefix       *os.Root
+	Global       *config.Global
+	GlobalLogger *slog.Logger
+	Reqs         []AddDeviceRequest
+}
+
 type LoadArgs struct {
 	// Where the prefix given by -P is.
 	Prefix *os.Root
@@ -101,9 +111,10 @@ type LoadArgs struct {
 	// This effectively guarantees [Device.timestamp] will not be nil upon initialization,
 	// but does not guarantee it will always be up-to-date.
 	Strict bool
-	// Devices to be added on [LoadDevices].
-	// Successfully added devices will be committed to the config file.
-	AddDevices []AddDeviceRequest
+	// In-memory config devices may be given to
+	// merge with the existing config.
+	// Designed to be used with [DevicesToAdd].
+	MergeWith config.Devices
 	// GlobalLogger to be used during load.
 	GlobalLogger *slog.Logger
 }
@@ -116,14 +127,21 @@ type miotDeviceArgs struct {
 	GlobalLogger *slog.Logger
 }
 
+type ErrDeviceMerge struct {
+	DeviceID string
+	New      config.Device
+	Existing config.Device
+}
+
+func (e ErrDeviceMerge) Error() string {
+	return fmt.Sprintf("DeviceID %v already exists:\n%#v\nbut tried to add:\n%#v\n", e.DeviceID, e.Existing, e.New)
+}
+
 // newDevice initializes a MiotDevice.
 // This function will return both a MiotDevice and ErrDevicePing if the device couldn't be reached.
 func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	var res Device
 
-	// technically we don't even need metaspec if spec file
-	// already exists and cfgDevice.Version is defined,
-	// but keep it simple instead of special casing it
 	dev := &args.Device
 	spec := &dev.Spec
 	l := args.GlobalLogger.WithGroup("miot").With("did", args.DeviceID, "addr", dev.IPAddr)
@@ -257,6 +275,56 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 	return res, nil
 }
 
+func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.Devices, error) {
+	l := args.GlobalLogger.WithGroup("adddev")
+	res := make(config.Devices)
+	// load metaspecs, will need them to determine version
+	var ms config.Metaspecs
+	metaspecsArgs := config.Args[config.NoHint]{
+		Prefix: args.Prefix,
+		Global: args.Global,
+		Hint:   nil,
+	}
+	err := config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
+	}
+
+	for _, addDevReq := range args.Reqs {
+		resolvedDev, err := ResolveDevice(ctx, addDevReq, args.GlobalLogger)
+		if err != nil {
+			return nil, err
+		}
+
+		// workaround: backconvert did to string
+		// for correct key type
+		didStr := strconv.Itoa(int(resolvedDev.Info.DeviceID))
+
+		// Match whether device has already been defined by its DeviceID
+		// rather than IP or token.
+		// Unfortunately this can't be done earlier and we
+		// must have already contacted the device to do it.
+		metaspecs := slices.Values(ms.Instances)
+		meta, err := ResolveDefaultMetaspec(resolvedDev.Info.Model, metaspecs,
+			// NOTE potential optimization:
+			// just reuse another device with the same model's Version
+			func(a config.Metaspec, b config.Metaspec) int {
+				return cmp.Compare(a.Version, b.Version)
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		cfgDev := resolvedDev.WithVersion(meta)
+		l.Debug("device", "cfg", cfgDev)
+		res[didStr] = cfgDev
+	}
+
+	l.Debug("devices to be added", "count", len(res))
+	return res, nil
+}
+
 // LoadDevices loads devices' states from disk.
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
@@ -276,6 +344,7 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 //	parallel for each [intermediateDevice]:
 //	 call [newDevice]
 func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
+	l := args.GlobalLogger
 	var cfgDevices config.Devices
 	err := config.Populate(&cfgDevices, config.Args[config.NoHint]{
 		Prefix: args.Prefix,
@@ -287,23 +356,22 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	}
 
 	// are there new devices to be added too?
-	if len(args.AddDevices) > 0 {
-		for _, dev := range args.AddDevices {
-			dev, err := ResolveDevice(ctx, dev, args.GlobalLogger)
-			if err != nil {
-				return nil, err
+	if len(args.MergeWith) > 0 {
+		// check if a device with the same DeviceID already exists
+		for did, mergeDev := range args.MergeWith {
+			if existingDev, ok := cfgDevices[did]; ok {
+				return nil, errors.Join(ErrDeviceAdd, ErrDeviceMerge{
+					DeviceID: did,
+					New:      mergeDev,
+					Existing: existingDev,
+				})
 			}
-
-			// TODO don't default to Version 1
-			// TODO don't return a "device already exists" error so late
-			// workaround: backconvert did to string to
-			// fit into cfgDevices
-			didStr := strconv.Itoa(int(dev.DeviceID))
-			if _, ok := cfgDevices[didStr]; ok {
-				return nil, fmt.Errorf("%w: device already defined in config!", ErrDeviceAdd)
-			}
-			cfgDevices[didStr] = dev.Device
 		}
+
+		// merge the two
+		l.Debug("load devices: merging", "count", len(args.MergeWith))
+		maps.Copy(cfgDevices, args.MergeWith)
+
 		err := config.Flush(&cfgDevices, config.Args[config.NoHint]{
 			Prefix: args.Prefix,
 			Global: args.Global,
