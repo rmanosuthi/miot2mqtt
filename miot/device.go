@@ -275,9 +275,14 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 	return res, nil
 }
 
-func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.Devices, error) {
+// DevicesToAdd converts each unparsed IP-Token entry into
+// [config.Device] and [config.Metaspec].
+//
+// The device config is not changed nor are [config.Spec] downloaded,
+// but [config.Metaspecs] may be downloaded.
+func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, error) {
 	l := args.GlobalLogger.WithGroup("adddev")
-	res := make(config.Devices)
+	res := make(config.DevicesMeta)
 	// load metaspecs, will need them to determine version
 	var ms config.Metaspecs
 	metaspecsArgs := config.Args[config.NoHint]{
@@ -316,9 +321,12 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.Devices, erro
 			return nil, err
 		}
 
-		cfgDev := resolvedDev.WithVersion(meta)
+		cfgDev := resolvedDev.WithVersion(&meta)
 		l.Debug("device", "cfg", cfgDev)
-		res[didStr] = cfgDev
+		res[didStr] = config.DeviceMeta{
+			Device: cfgDev,
+			Meta:   meta,
+		}
 	}
 
 	l.Debug("devices to be added", "count", len(res))

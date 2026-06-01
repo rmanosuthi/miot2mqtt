@@ -79,9 +79,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	var newDevs config.Devices
+	newDevs := make(config.Devices)
 	if len(addDevs) > 0 {
-		newDevs, err = miot.DevicesToAdd(ctx, miot.AddDeviceArgs{
+		newDevMetas, err := miot.DevicesToAdd(ctx, miot.AddDeviceArgs{
 			Prefix:       pfx,
 			Global:       &gc,
 			GlobalLogger: l,
@@ -90,6 +90,10 @@ func main() {
 		if err != nil {
 			l.Error("add new devices", "reason", err)
 			os.Exit(1)
+		}
+
+		for did, dm := range newDevMetas {
+			newDevs[did] = dm.Device
 		}
 	}
 

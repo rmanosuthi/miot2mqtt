@@ -221,7 +221,7 @@ func ResolveDefaultMetaspec(
 	modelName string,
 	metaspecs iter.Seq[config.Metaspec],
 	cmp func(config.Metaspec, config.Metaspec) int,
-) (*config.Metaspec, error) {
+) (config.Metaspec, error) {
 	// filter for matching model names first
 	filter := func(yield func(m config.Metaspec) bool) {
 		for metaspec := range metaspecs {
@@ -235,9 +235,9 @@ func ResolveDefaultMetaspec(
 	metas := slices.Collect(filter)
 	slices.SortFunc(metas, cmp)
 	if len(metas) == 0 {
-		return nil, fmt.Errorf("%w: %v", ErrNoMetaspec, modelName)
+		return config.Metaspec{}, fmt.Errorf("%w: %v", ErrNoMetaspec, modelName)
 	} else {
-		return &metas[len(metas)-1], nil
+		return metas[len(metas)-1], nil
 	}
 }
 
