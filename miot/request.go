@@ -105,11 +105,14 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	if err != nil {
 		return errors.Join(ErrDeviceDial, err)
 	}
-	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetReadDeadline(deadline)
-		conn.SetWriteDeadline(deadline)
-	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)
@@ -198,11 +201,14 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	if err != nil {
 		return errors.Join(ErrDeviceDial, err)
 	}
-	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetReadDeadline(deadline)
-		conn.SetWriteDeadline(deadline)
-	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)

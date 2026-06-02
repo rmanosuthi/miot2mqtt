@@ -281,7 +281,7 @@ func parseDevices(devs config.Devices) (parsedDevices, error) {
 // The device config is not changed nor are [config.Spec] downloaded,
 // but [config.Metaspecs] may be downloaded.
 func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, error) {
-	l := args.GlobalLogger.WithGroup("adddev")
+	l := args.GlobalLogger
 	res := make(config.DevicesMeta)
 	// load metaspecs, will need them to determine version
 	var ms config.Metaspecs

@@ -181,6 +181,14 @@ func dig(ctx context.Context, args digArgs) (Info, error) {
 	if err != nil {
 		return Info{}, err
 	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)
@@ -248,10 +256,14 @@ func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.
 		return nil, errors.Join(ErrDeviceDial, err)
 	}
 	l.Debug("dial")
-	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetReadDeadline(deadline)
-	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(wire.PingPacket)
