@@ -60,12 +60,6 @@ func newQueryInfo(id uint32) miQueryInfo {
 	return miQueryInfo{ID: id, Method: "miIO.info", Params: make([]string, 0)}
 }
 
-// AddDeviceRequest is a pair of unverified IP Address and Token strings.
-type AddDeviceRequest struct {
-	IPAddr string
-	Token  string
-}
-
 type Info struct {
 	RespInfo
 	DeviceID  wire.DeviceID

@@ -15,9 +15,9 @@ There are programs out there for fetching tokens. [Here's one.](https://github.c
 4. Run `daemon -P {prefix}`.
 On first run it will create a default config in `{prefix}/config.toml` and exit.
 5. Edit the created config.
-6. You'll want to add some devices. Run `daemon -P {prefix} -a "{ipaddr},{tokenhex}"`.
+6. You'll want to add some devices. Run `daemon -P {prefix} -e "{ipaddr},{tokenhex}"`.
 
-Example: `daemon -P ~/m2m/ -a "192.168.1.154,a2b9d813107c8b2ece0bd517ddf860bc"`
+Example: `daemon -P ~/m2m/ -e "192.168.1.154,a2b9d813107c8b2ece0bd517ddf860bc" -e "192.168.1.75,39422d3039323731364544383934320a"`
 
 ## Prefix
 
@@ -30,6 +30,8 @@ Example: `/var/lib/miot2mqtt/`
 `miot2mqtt` assumes exclusive access to the prefix; don't edit anything while in operation.
 
 Do not edit anything in `/cache/` as the program is not tolerant of any errors.
+
+The prefix will generally have this structure:
 
 ```
 /config.toml

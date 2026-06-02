@@ -4,12 +4,13 @@ import (
 	"context"
 
 	"github.com/rmanosuthi/miot2mqtt/cmd/utils/common"
+	"github.com/rmanosuthi/miot2mqtt/miot"
 )
 
 type devListArgs struct {
 	Instance common.FullInstance
 	// TODO filter from this
-	Entries devEntries
+	Entries miot.AddDeviceRequests
 }
 
 // list has the invocation:

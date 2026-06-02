@@ -10,7 +10,7 @@ import (
 
 type devAddArgs struct {
 	Instance   common.MinInstance
-	Entries    devEntries
+	Entries    miot.AddDeviceRequests
 	FetchSpecs bool
 }
 

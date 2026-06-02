@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,11 +95,44 @@ func (dev *Device) PropName(n string) (config.SpecProp, bool) {
 	return config.SpecProp{}, false
 }
 
+// AddDeviceRequest is a pair of unverified IP Address and Token strings.
+type AddDeviceRequest struct {
+	IPAddr string
+	Token  string
+}
+
+// AddDeviceRequests is a list of unverified IP Addresses and Token strings.
+//
+// It implements the [flag.Value] interface.
+type AddDeviceRequests []AddDeviceRequest
+
+func (adr *AddDeviceRequests) String() string {
+	return ""
+}
+
+func (adr *AddDeviceRequests) Set(value string) error {
+	v := strings.TrimSpace(value)
+	subs := strings.Split(v, ",")
+	if subs[0] == "" {
+		return fmt.Errorf("no address")
+	}
+	if subs[1] == "" {
+		return fmt.Errorf("no token")
+	}
+
+	*adr = append(*adr, AddDeviceRequest{
+		IPAddr: subs[0],
+		Token:  subs[1],
+	})
+	return nil
+}
+
+// AddDevicesArgs are arguments for [DevicesToAdd].
 type AddDeviceArgs struct {
 	Prefix       *os.Root
 	Global       *config.Global
 	GlobalLogger *slog.Logger
-	Reqs         []AddDeviceRequest
+	Reqs         AddDeviceRequests
 }
 
 type LoadArgs struct {

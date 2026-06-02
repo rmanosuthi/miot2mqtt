@@ -61,36 +61,11 @@ package device
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/rmanosuthi/miot2mqtt/cmd/utils/common"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 )
-
-type devEntries []miot.AddDeviceRequest
-
-func (de *devEntries) String() string {
-	return ""
-}
-
-func (de *devEntries) Set(value string) error {
-	v := strings.TrimSpace(value)
-	subs := strings.Split(v, ",")
-	if subs[0] == "" {
-		return fmt.Errorf("no address")
-	}
-	if subs[1] == "" {
-		return fmt.Errorf("no token")
-	}
-
-	*de = append(*de, miot.AddDeviceRequest{
-		IPAddr: subs[0],
-		Token:  subs[1],
-	})
-	return nil
-}
 
 func Entrypoint(ctx context.Context, l *slog.Logger, args []string) error {
 	var gf common.GlobalFlags
@@ -103,7 +78,7 @@ func Entrypoint(ctx context.Context, l *slog.Logger, args []string) error {
 
 	var relaxed bool
 	var download bool
-	var entries devEntries
+	var entries miot.AddDeviceRequests
 
 	// modes
 	fs.BoolVar(&addDev, "a", false, "add devices")
