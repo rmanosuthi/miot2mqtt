@@ -20,27 +20,12 @@ import (
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
-	"github.com/rmanosuthi/miot2mqtt/ha/fan"
 	"github.com/rmanosuthi/miot2mqtt/miot"
-	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	paho "github.com/eclipse/paho.golang/paho"
 )
 
-const HintFan = "fan"
-
-var ErrDevNoHint = errors.New("device has no class hint in spec")
 var ErrDevEv = errors.New("incoming event")
-
-type ErrDevUnsupported struct {
-	did   wire.DeviceID
-	model string
-	cls   string
-}
-
-func (e ErrDevUnsupported) Error() string {
-	return fmt.Sprintf("unsupported device: did %v model %v class %v", e.did, e.model, e.cls)
-}
 
 // A Device in this package is its Home Assistant-facing representation.
 type Device struct {
@@ -67,7 +52,7 @@ type DeviceArgs struct {
 func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	md := &args.MiotDevice
 	did := md.DeviceID
-	cmps, err := components(md)
+	cmps, err := MatchDevice(md)
 	if err != nil {
 		return Device{}, err
 	}
@@ -138,29 +123,6 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 func (dev *Device) Post(msg any) error {
 	dev.mbox <- msg
 	return nil
-}
-
-// components gets a [Component] group to attach to a device.
-// All possible components a device may possess are returned.
-func components(md *miot.Device) ([]discovery.Component, error) {
-	hint, err := discovery.Hint(md)
-	if err != nil {
-		return nil, err
-	}
-
-	switch hint {
-	case HintFan:
-		return []discovery.Component{
-			fan.Fan,
-			fan.HorzAngle,
-		}, nil
-	default:
-		return nil, ErrDevUnsupported{
-			did:   md.DeviceID,
-			model: md.Model,
-			cls:   hint,
-		}
-	}
 }
 
 func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
