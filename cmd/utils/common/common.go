@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 )
+
+var ErrNoPrefix = errors.New("prefix must be given")
 
 var LogLevel = new(slog.LevelVar)
 

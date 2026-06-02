@@ -1,46 +1,14 @@
-/*
-Pcap is a mode of utils for packet capture related functions.
-
-miot2mqtt supports processing .pcapng files to
-decrypt and parse communication between a controller
-and Xiaomi devices.
-
-Devices to be decrypted must already have been enrolled,
-meaning their IP addresses and tokens
-must exist in the config file.
-
-Use responsibly.
-
-Usage:
-
-	utils pcap -P prefix [-v] [-r] -f pcapfile
-
-Flags:
-
-	-P prefix
-		`prefix` specifies the path to the instance's prefix.
-		It must always be given.
-
-	-v
-		Enable verbose logging.
-
-	-r
-		Relaxed mode: warn on parsing failures instead of
-		terminating the program.
-		This is useful for skipping messages encrypted with
-		unknown tokens.
-
-	-f pcapfile
-		Path to the packet capture file. It must always be given.
-*/
+// See usage.txt for usage.
 package pcap
 
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/rmanosuthi/miot2mqtt/cmd/utils/common"
 	"github.com/rmanosuthi/miot2mqtt/miot"
@@ -51,9 +19,15 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
+//go:embed usage.txt
+var usageText string
+
 func Entrypoint(ctx context.Context, l *slog.Logger, args []string) error {
 	var gf common.GlobalFlags
 	fs := flag.NewFlagSet("pcap", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, usageText)
+	}
 	common.Flags(&gf, fs)
 
 	var pcapPath string
@@ -65,6 +39,10 @@ func Entrypoint(ctx context.Context, l *slog.Logger, args []string) error {
 	err := fs.Parse(args)
 	if err != nil {
 		return err
+	}
+
+	if gf.Prefix == "" {
+		return common.ErrNoPrefix
 	}
 
 	minInst, err := common.MinInit(ctx, l, &gf)
