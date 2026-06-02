@@ -62,6 +62,7 @@ func main() {
 		Prefix: pfx,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err = config.Populate(&gc, args, l)
 	if err != nil {

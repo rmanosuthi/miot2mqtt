@@ -273,6 +273,7 @@ func populateSpec(
 						Context: ctx,
 					},
 				},
+				Perm: 0o644,
 			}
 			err := config.Populate(&spec, popArgs, args.GlobalLogger)
 			return spec, err
@@ -323,6 +324,7 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, 
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err := config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 	if err != nil {
@@ -396,6 +398,8 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
+		// this file may contain tokens
+		Perm: 0o600,
 	}, args.GlobalLogger)
 	if err != nil {
 		return nil, err
@@ -475,6 +479,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Prefix: args.Prefix,
 			Global: args.Global,
 			Hint:   nil,
+			Perm:   0o644,
 		}
 		err = config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 		if err != nil {

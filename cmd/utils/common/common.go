@@ -57,6 +57,7 @@ func MinInit(ctx context.Context, logger *slog.Logger, gf *GlobalFlags) (MinInst
 		Prefix: pfx,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err = config.Populate(&global, globalArgs, logger)
 	if err != nil {
@@ -76,6 +77,7 @@ func FullInit(ctx context.Context, mini MinInstance) (FullInstance, error) {
 		Prefix: mini.PrefixRoot,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err := config.Populate(&metaspecs, globalArgs, mini.ModeLogger)
 	if err != nil {
