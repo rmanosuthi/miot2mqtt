@@ -7,7 +7,18 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// DeviceMeta is a pair of Device and Metaspec.
+type DeviceMeta struct {
+	Device Device
+	Meta   Metaspec
+}
+
+// Devices is a map from string DID to Device.
 type Devices map[string]Device
+
+// DevicesMeta is a map from string DID to
+// a pair of Device and Metaspec.
+type DevicesMeta map[string]DeviceMeta
 
 func (devs *Devices) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 	res := make(Devices)
@@ -25,6 +36,16 @@ func (devs *Devices) MarshalFunc() ([]byte, error) {
 
 func (devs *Devices) UnmarshalFunc(src []byte) error {
 	return toml.Unmarshal(src, devs)
+}
+
+// Devices returns a map from string DID to Device,
+// excluding Metaspec in the process.
+func (dm *DevicesMeta) Devices() Devices {
+	res := make(Devices)
+	for did, d := range *dm {
+		res[did] = d.Device
+	}
+	return res
 }
 
 // A Device is a section in the Devices config file,

@@ -181,6 +181,14 @@ func dig(ctx context.Context, args digArgs) (Info, error) {
 	if err != nil {
 		return Info{}, err
 	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(packetSend)
@@ -221,7 +229,7 @@ func ResolveDefaultMetaspec(
 	modelName string,
 	metaspecs iter.Seq[config.Metaspec],
 	cmp func(config.Metaspec, config.Metaspec) int,
-) (*config.Metaspec, error) {
+) (config.Metaspec, error) {
 	// filter for matching model names first
 	filter := func(yield func(m config.Metaspec) bool) {
 		for metaspec := range metaspecs {
@@ -235,9 +243,9 @@ func ResolveDefaultMetaspec(
 	metas := slices.Collect(filter)
 	slices.SortFunc(metas, cmp)
 	if len(metas) == 0 {
-		return nil, fmt.Errorf("%w: %v", ErrNoMetaspec, modelName)
+		return config.Metaspec{}, fmt.Errorf("%w: %v", ErrNoMetaspec, modelName)
 	} else {
-		return &metas[len(metas)-1], nil
+		return metas[len(metas)-1], nil
 	}
 }
 
@@ -248,10 +256,14 @@ func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.
 		return nil, errors.Join(ErrDeviceDial, err)
 	}
 	l.Debug("dial")
-	deadline, ok := ctx.Deadline()
-	if ok {
-		conn.SetReadDeadline(deadline)
-	}
+	go func() {
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
+		} else {
+			<-ctx.Done()
+			conn.Close()
+		}
+	}()
 	defer conn.Close()
 
 	_, err = conn.Write(wire.PingPacket)
