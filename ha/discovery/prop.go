@@ -12,7 +12,7 @@ import (
 var ErrNoMinMax = errors.New("property does not have min/max range")
 
 type key = prop.PropKey
-type spec = config.SpecProp
+type spec = *config.SpecProp
 type decl = map[string]any
 
 // PropDecl represents attributes that will be associated with a miot property.
@@ -44,7 +44,8 @@ func (pd *PropDecl) Attr() string {
 }
 
 // PropDecls is a collection of property declarations.
-// The key is simply used for [Discovery.Components]' key.
+// The key is used for looking up a
+// [config.SpecProp] from its URN name.
 type PropDecls map[string]PropDecl
 
 type Range[T constraints.Integer] struct {

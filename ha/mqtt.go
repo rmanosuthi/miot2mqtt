@@ -79,6 +79,7 @@ func mqttConnUp(ctx context.Context, args connUpArgs) error {
 	router := args.Router
 	l := args.Logger
 	toDp := args.ToDP
+	l.Debug("starting conn up")
 
 	router.RegisterHandler("homeassistant/status", func(pub *paho.Publish) {
 		pl := string(pub.Payload)
@@ -98,6 +99,7 @@ func mqttConnUp(ctx context.Context, args connUpArgs) error {
 	if err != nil {
 		return err
 	}
+	l.Debug("setup HA status sub")
 
 	// ask DevicePool for routes and subscriptions
 	chSubs := make(chan DpMqConnInfo)
@@ -128,6 +130,7 @@ WaitForTopics:
 			// setup route
 			router.UnregisterHandler(devTopics.RouteGlob)
 			router.RegisterHandler(devTopics.RouteGlob, devTopics.ForwardTo)
+			l.Debug("setup routes")
 		}
 	}
 
@@ -138,6 +141,7 @@ WaitForTopics:
 	if err != nil {
 		return err
 	}
+	l.Debug("setup subs")
 	return nil
 }
 
@@ -167,16 +171,15 @@ func NewMQTT(
 			return true
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, connAck *paho.Connack) {
-			select {
-			case _, _ = <-chNoMoreIntake:
-				close(chConnUp)
-			default:
+			go func() {
 				select {
-				case chConnUp <- struct{}{}:
+				case _, _ = <-chNoMoreIntake:
+					l.Debug("no more intake")
+					close(chConnUp)
 				default:
-					l.Warn("connection up in progress")
+					chConnUp <- struct{}{}
 				}
-			}
+			}()
 		},
 		OnConnectError: func(err error) {
 			l.Warn("connection attempt failed", "reason", err)
@@ -185,6 +188,7 @@ func NewMQTT(
 			ClientID: "miot2mqtt",
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				func(pr paho.PublishReceived) (bool, error) {
+					l.Debug("new publish")
 					router.Route(pr.Packet.Packet())
 					return true, nil
 				},
@@ -216,7 +220,7 @@ func NewMQTT(
 // Subscribe starts the MQTT service.
 func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 	l := mq.logger
-	l.Info("service is live")
+	l.Info("mq service is live")
 	var run bool = true
 
 	ctxWaitConn, cancelConn := context.WithTimeout(ctx, time.Second*WaitMQTTUpSecs)
@@ -228,6 +232,7 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 		mq.shutdownDp(context.TODO())
 		return err
 	}
+	l.Debug("mq conn live")
 
 	var wg sync.WaitGroup
 	if run {
@@ -259,6 +264,7 @@ func (mq *MQTTHandle) Subscribe(ctx context.Context) error {
 	for run {
 		select {
 		case <-mq.chConnUp:
+			l.Debug("mqtt loop: conn up")
 			err := mqttConnUp(ctx, connUpArgs{
 				ConnMan: mq.conn,
 				Router:  mq.router,

@@ -27,7 +27,7 @@ type ComponentHandle struct {
 	cmp Component
 	// Device ID of the associated [miot.Device].
 	did wire.DeviceID
-	// HA platform of the component.
+	// HA platform of the component. Examples: "fan", "number", "switch"
 	platform      string
 	CommandTopics map[string]config.URN
 	StateTopics   map[config.URN]string
@@ -58,7 +58,7 @@ type ComponentHandle struct {
 //	    "p": "sensor",
 //	    "device_class":"temperature",
 //	    "unit_of_measurement":"°C",
-//	    "value_template":"{{ value_json.temperature}}",
+//	    "value_template":"{{ value_json.temperature }}",
 //	    "unique_id":"temp01ae_t"
 //	  },
 //	}
@@ -68,6 +68,12 @@ type ComponentHandle struct {
 // "value_template", and "unique_id".
 //
 // # Identification
+//
+// Home Assistant UI component label:
+//
+//	{Alias}
+//
+// Discovery message:
 //
 //	component name in device discovery's components map: {Canon}
 //	unique_id: miot2mqtt_{DeviceID}_{Platform}_{Canon}
@@ -80,7 +86,6 @@ type ComponentHandle struct {
 // A component is simply marked as online whenever Device starts and
 // offline when the program exits.
 // This will most likely change in the future.
-// TODO update doc
 type Component struct {
 	// Mandatory tells the resolver this component's initialization must succeed,
 	// else the entire device's initialization will be aborted.
@@ -132,8 +137,14 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 	cmpDiscov["~"] = root
 	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 
+	dst := attachPropDeclDst{
+		CommandTopics: commandTopics,
+		StateTopics:   stateTopics,
+		CmpDiscovery:  cmpDiscov,
+	}
+
 	for matchName, decl := range decls {
-		prop, ok := dev.PropName(matchName)
+		specProp, ok := dev.PropName(matchName)
 		if !ok {
 			if decl.Mandatory {
 				// property not found. fail if Mandatory.
@@ -148,43 +159,14 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 			}
 		}
 
-		// TODO refactor
-		// old Resolver.Expand
-		attr := decl.Attr()
-
-		var more map[string]any
-		var err error
-		if decl.More != nil {
-			more, err = decl.More(prop)
-			if err != nil {
-				return ComponentHandle{}, errors.Join(
-					ErrComponentAttach,
-					err,
-				)
-			}
-		}
-		maps.Insert(cmpDiscov, maps.All(more))
-
-		if prop.Format == wire.MiTypeBool {
-			cmpDiscov["payload_"+attr+"on"] = "true"
-			cmpDiscov["payload_"+attr+"off"] = "false"
-		}
-
-		propTopic := componentTopic.Property(&decl)
-		if prop.Read() {
-			// state topic in discov: relative
-			cmpDiscov[attr+"state_topic"] = propTopic.State(false)
-
-			// state topic in table: absolute
-			stateTopics[prop.Urn] = propTopic.State(true)
-		}
-
-		if prop.Write() {
-			// command topic in discov: relative
-			cmpDiscov[attr+"command_topic"] = propTopic.Command(false)
-
-			// command topic in table: absolute
-			commandTopics[propTopic.Command(true)] = prop.Urn
+		// try to attach this PropDecl
+		err := attachPropDecl(dst, attachPropDeclArgs{
+			Decl:           &decl,
+			Spec:           &specProp,
+			ComponentTopic: &componentTopic,
+		})
+		if err != nil {
+			return ComponentHandle{}, err
 		}
 	}
 
@@ -198,6 +180,68 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		Canon:         Canon(cmp),
 		AvailTopic:    componentTopic.AvailTopic(),
 	}, nil
+}
+
+type attachPropDeclArgs struct {
+	Decl           *PropDecl
+	Spec           *config.SpecProp
+	ComponentTopic *ComponentTopic
+}
+
+type attachPropDeclDst struct {
+	CommandTopics map[string]config.URN
+	StateTopics   map[config.URN]string
+	CmpDiscovery  ComponentDiscovery
+}
+
+// attachPropDecl uses PropDecl and supporting data to
+// populate the following:
+//
+//   - in-memory command topics
+//   - in-memory state topics
+//   - prepare component discovery
+func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
+	attr := args.Decl.Attr()
+	decl := args.Decl
+	prop := args.Spec
+	componentTopic := args.ComponentTopic
+
+	var more map[string]any
+	var err error
+	if decl.More != nil {
+		more, err = decl.More(prop)
+		if err != nil {
+			return errors.Join(
+				ErrComponentAttach,
+				err,
+			)
+		}
+	}
+	maps.Insert(dst.CmpDiscovery, maps.All(more))
+
+	if prop.Format == wire.MiTypeBool {
+		dst.CmpDiscovery["payload_"+attr+"on"] = "true"
+		dst.CmpDiscovery["payload_"+attr+"off"] = "false"
+	}
+
+	propTopic := componentTopic.Property(decl)
+	if prop.Read() {
+		// state topic in discov: relative
+		dst.CmpDiscovery[attr+"state_topic"] = propTopic.State(false)
+
+		// state topic in table: absolute
+		dst.StateTopics[prop.Urn] = propTopic.State(true)
+	}
+
+	if prop.Write() {
+		// command topic in discov: relative
+		dst.CmpDiscovery[attr+"command_topic"] = propTopic.Command(false)
+
+		// command topic in table: absolute
+		dst.CommandTopics[propTopic.Command(true)] = prop.Urn
+	}
+
+	return nil
 }
 
 // UniqueID calculates unique_id for a component.

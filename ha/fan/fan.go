@@ -7,7 +7,7 @@ import (
 )
 
 type key = prop.PropKey
-type spec = config.SpecProp
+type spec = *config.SpecProp
 type decl = map[string]any
 
 var Fan = d.Component{
@@ -25,7 +25,7 @@ var Fan = d.Component{
 		"fan-level": d.PropDecl{
 			Prefix: "percentage",
 			More: func(s spec) (decl, error) {
-				res, err := d.MinMax[uint8](&s)
+				res, err := d.MinMax[uint8](s)
 				if err != nil {
 					return decl{}, err
 				}

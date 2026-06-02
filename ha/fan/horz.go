@@ -11,7 +11,7 @@ var HorzAngle = d.Component{
 			Mandatory: true,
 			Prefix:    "",
 			More: func(s spec) (decl, error) {
-				res, err := d.MinMax[uint16](&s)
+				res, err := d.MinMax[uint16](s)
 				if err != nil {
 					return decl{}, err
 				}
