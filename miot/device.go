@@ -548,20 +548,20 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 	for devInit := range devices {
 		slog.Debug("initDevice")
 		err := devInit.Error
-		if !args.Strict {
-			if err != nil && !errors.Is(err, ErrDevicePing) {
-				// error is too severe, don't register device
-				l.Warn("skipping device", "reason", err)
+		if err != nil {
+			if args.Strict {
+				return res, err
 			} else {
-				l.Warn("device offline")
-				// register device even though it could be offline
-				res[devInit.Device.DeviceID] = devInit.Device
+				if errors.Is(err, ErrDevicePing) {
+					l.Warn("device offline", "reason", err)
+					// register device even though it could be offline
+					res[devInit.Device.DeviceID] = devInit.Device
+				} else {
+					// error is too severe, don't register device
+					l.Warn("skipping device", "reason", err)
+				}
 			}
 		} else {
-			if err != nil {
-				// give up
-				return nil, errors.Join(ErrDeviceInit, err)
-			}
 			res[devInit.Device.DeviceID] = devInit.Device
 		}
 	}
