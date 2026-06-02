@@ -20,6 +20,9 @@ func main() {
 	var pfxPath, mode, inputFile string
 	var verbose, save bool
 	var addDevReqs miot.AddDeviceRequests
+	var pfx *os.Root
+	var err error
+
 	flag.StringVar(&pfxPath, "P", "", "path to prefix")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.StringVar(&mode, "m", "", "operation mode")
@@ -43,11 +46,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	pfx, err := os.OpenRoot(pfxPath)
+	err = os.MkdirAll(pfxPath, 0o755)
 	if err != nil {
-		slog.Error("failed to open prefix", "path", pfxPath, "reason", err)
+		l.Error("create prefix", "reason", err)
+	}
+	pfx, err = os.OpenRoot(pfxPath)
+	if err != nil {
+		slog.Error("open prefix", "path", pfxPath, "reason", err)
 		os.Exit(1)
 	}
+	defer pfx.Close()
 
 	var gc config.Global
 	args := config.Args[config.NoHint]{

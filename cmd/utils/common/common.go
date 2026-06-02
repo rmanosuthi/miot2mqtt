@@ -43,6 +43,10 @@ func MinInit(ctx context.Context, logger *slog.Logger, gf *GlobalFlags) (MinInst
 		LogLevel.Set(slog.LevelDebug)
 	}
 
+	err := os.MkdirAll(gf.Prefix, 0o755)
+	if err != nil {
+		logger.Error("create prefix", "reason", err)
+	}
 	pfx, err := os.OpenRoot(gf.Prefix)
 	if err != nil {
 		return MinInstance{}, fmt.Errorf("open prefix: %w", err)
