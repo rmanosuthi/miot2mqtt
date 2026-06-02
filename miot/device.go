@@ -405,6 +405,10 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		return nil, err
 	}
 
+	if len(cfgDevices) == 0 && len(args.MergeWith) == 0 {
+		return nil, fmt.Errorf("no devices")
+	}
+
 	// are there new devices to be added too?
 	if len(args.MergeWith) > 0 {
 		// check if a device with the same DeviceID already exists
