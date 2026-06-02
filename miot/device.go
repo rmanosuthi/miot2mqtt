@@ -337,9 +337,13 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, 
 // Metaspecs may be loaded for devices without a spec file.
 // ctx is only used to cancel initialization and is not stored.
 //
-// The lifecycle of a [Device] is as follows:
+// The following steps outline the initialization process:
 //
-//	[config.Devices] loaded
+//	load [config.Devices]
+//	if args.MergeWith is present:
+//	 - check for DID collisions
+//	 - merge into [config.Devices]
+//	 - save config to disk
 //	for each [config.Device]:
 //	 - validate
 //	 - load spec
@@ -491,6 +495,12 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		close(devices)
 	}()
 
+	if args.Strict {
+		l.Debug("strict device loading")
+	} else {
+		l.Debug("relaxed device loading")
+	}
+
 	res := make(MapDevices)
 	for devInit := range devices {
 		slog.Debug("initDevice")
@@ -498,8 +508,9 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		if !args.Strict {
 			if err != nil && !errors.Is(err, ErrDevicePing) {
 				// error is too severe, don't register device
-				slog.Warn("not registering device", "reason", err)
+				l.Warn("skipping device", "reason", err)
 			} else {
+				l.Warn("device offline")
 				// register device even though it could be offline
 				res[devInit.Device.DeviceID] = devInit.Device
 			}
