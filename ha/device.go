@@ -107,7 +107,7 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	l.Debug("command", "topics", commandTopics)
 	l.Debug("state", "topics", stateTopics)
 	return Device{
-		ticker:        time.NewTicker(time.Second * 5),
+		ticker:        time.NewTicker(time.Second * 30),
 		components:    components,
 		md:            *md,
 		l:             l,
