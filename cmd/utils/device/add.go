@@ -10,7 +10,7 @@ import (
 
 type devAddArgs struct {
 	Instance   common.MinInstance
-	Entries    devEntries
+	Entries    miot.AddDeviceRequests
 	FetchSpecs bool
 }
 
@@ -50,6 +50,7 @@ func add(ctx context.Context, args devAddArgs) error {
 						Context: ctx,
 					},
 				},
+				Perm: 0o644,
 			}
 			err = config.Populate(&spec, a, l)
 			if err != nil {

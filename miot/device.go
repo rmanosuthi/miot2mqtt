@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,11 +95,44 @@ func (dev *Device) PropName(n string) (config.SpecProp, bool) {
 	return config.SpecProp{}, false
 }
 
+// AddDeviceRequest is a pair of unverified IP Address and Token strings.
+type AddDeviceRequest struct {
+	IPAddr string
+	Token  string
+}
+
+// AddDeviceRequests is a list of unverified IP Addresses and Token strings.
+//
+// It implements the [flag.Value] interface.
+type AddDeviceRequests []AddDeviceRequest
+
+func (adr *AddDeviceRequests) String() string {
+	return ""
+}
+
+func (adr *AddDeviceRequests) Set(value string) error {
+	v := strings.TrimSpace(value)
+	subs := strings.Split(v, ",")
+	if subs[0] == "" {
+		return fmt.Errorf("no address")
+	}
+	if subs[1] == "" {
+		return fmt.Errorf("no token")
+	}
+
+	*adr = append(*adr, AddDeviceRequest{
+		IPAddr: subs[0],
+		Token:  subs[1],
+	})
+	return nil
+}
+
+// AddDevicesArgs are arguments for [DevicesToAdd].
 type AddDeviceArgs struct {
 	Prefix       *os.Root
 	Global       *config.Global
 	GlobalLogger *slog.Logger
-	Reqs         []AddDeviceRequest
+	Reqs         AddDeviceRequests
 }
 
 type LoadArgs struct {
@@ -239,6 +273,7 @@ func populateSpec(
 						Context: ctx,
 					},
 				},
+				Perm: 0o644,
 			}
 			err := config.Populate(&spec, popArgs, args.GlobalLogger)
 			return spec, err
@@ -289,6 +324,7 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, 
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err := config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 	if err != nil {
@@ -362,9 +398,15 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		Prefix: args.Prefix,
 		Global: args.Global,
 		Hint:   nil,
+		// this file may contain tokens
+		Perm: 0o600,
 	}, args.GlobalLogger)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cfgDevices) == 0 && len(args.MergeWith) == 0 {
+		return nil, fmt.Errorf("no devices")
 	}
 
 	// are there new devices to be added too?
@@ -441,6 +483,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Prefix: args.Prefix,
 			Global: args.Global,
 			Hint:   nil,
+			Perm:   0o644,
 		}
 		err = config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 		if err != nil {

@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 )
+
+var ErrNoPrefix = errors.New("prefix must be given")
 
 var LogLevel = new(slog.LevelVar)
 
@@ -43,6 +46,10 @@ func MinInit(ctx context.Context, logger *slog.Logger, gf *GlobalFlags) (MinInst
 		LogLevel.Set(slog.LevelDebug)
 	}
 
+	err := os.MkdirAll(gf.Prefix, 0o755)
+	if err != nil {
+		logger.Error("create prefix", "reason", err)
+	}
 	pfx, err := os.OpenRoot(gf.Prefix)
 	if err != nil {
 		return MinInstance{}, fmt.Errorf("open prefix: %w", err)
@@ -53,6 +60,7 @@ func MinInit(ctx context.Context, logger *slog.Logger, gf *GlobalFlags) (MinInst
 		Prefix: pfx,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err = config.Populate(&global, globalArgs, logger)
 	if err != nil {
@@ -72,6 +80,7 @@ func FullInit(ctx context.Context, mini MinInstance) (FullInstance, error) {
 		Prefix: mini.PrefixRoot,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err := config.Populate(&metaspecs, globalArgs, mini.ModeLogger)
 	if err != nil {

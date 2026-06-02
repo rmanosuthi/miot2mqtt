@@ -42,6 +42,7 @@ type nonVolatile[T any, H any] interface {
 type Args[H any] struct {
 	Prefix *os.Root
 	Global *Global
+	Perm   fs.FileMode
 	Hint   *H
 }
 
@@ -56,6 +57,7 @@ func Flush[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Logge
 
 	pfx := args.Prefix
 
+	// perm shouldn't matter here
 	f, err := pfx.OpenFile(relPath, os.O_WRONLY, 0o644)
 	if err != nil {
 		l.Debug("err open file")
@@ -95,6 +97,7 @@ func Load[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Logger
 
 	pfx := args.Prefix
 
+	// perm shouldn't matter here
 	f, err := pfx.OpenFile(relPath, os.O_RDWR, 0o644)
 	if err != nil {
 		return errors.Join(ErrLoad, err)
@@ -147,14 +150,13 @@ func Populate[T nonVolatile[T, H], H any](state T, args Args[H], logger *slog.Lo
 	gc := args.Global
 	hint := args.Hint
 
-	if err := pfx.MkdirAll(filepath.Dir(relPath), 0770); err != nil {
+	if err := pfx.MkdirAll(filepath.Dir(relPath), 0755); err != nil {
 		return errors.Join(ErrPopulate, err)
 	}
 
-	f, err := pfx.OpenFile(relPath, os.O_RDWR, 0o644)
+	f, err := pfx.OpenFile(relPath, os.O_RDWR, args.Perm)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
-
-		f, err := pfx.OpenFile(relPath, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0o644)
+		f, err := pfx.OpenFile(relPath, os.O_CREATE|os.O_RDWR|os.O_EXCL, args.Perm)
 		if err != nil {
 			l.Debug("err create file")
 			return errors.Join(ErrPopulate, err)

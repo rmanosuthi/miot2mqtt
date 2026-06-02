@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -18,14 +17,18 @@ import (
 )
 
 func main() {
-	var pfxPath, mode, inputFile, addDevices string
+	var pfxPath, mode, inputFile string
 	var verbose, save bool
+	var addDevReqs miot.AddDeviceRequests
+	var pfx *os.Root
+	var err error
+
 	flag.StringVar(&pfxPath, "P", "", "path to prefix")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.StringVar(&mode, "m", "", "operation mode")
 	flag.StringVar(&inputFile, "f", "", "input file")
 	flag.BoolVar(&save, "s", false, "save state")
-	flag.StringVar(&addDevices, "a", "", "new device info (format: ipaddr1,token1,ipaddr2,token2,...)")
+	flag.Var(&addDevReqs, "e", "add a new device, repeat flag for each device (format: ipaddr,token)")
 	flag.Parse()
 
 	var logLevel slog.Level
@@ -43,17 +46,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	pfx, err := os.OpenRoot(pfxPath)
+	err = os.MkdirAll(pfxPath, 0o755)
 	if err != nil {
-		slog.Error("failed to open prefix", "path", pfxPath, "reason", err)
+		l.Error("create prefix", "reason", err)
+	}
+	pfx, err = os.OpenRoot(pfxPath)
+	if err != nil {
+		slog.Error("open prefix", "path", pfxPath, "reason", err)
 		os.Exit(1)
 	}
+	defer pfx.Close()
 
 	var gc config.Global
 	args := config.Args[config.NoHint]{
 		Prefix: pfx,
 		Global: nil,
 		Hint:   nil,
+		Perm:   0o644,
 	}
 	err = config.Populate(&gc, args, l)
 	if err != nil {
@@ -61,31 +70,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	var addDevs []miot.AddDeviceRequest
-	if addDevices != "" {
-		splitAddDevs := strings.Split(addDevices, ",")
-		if len(splitAddDevs)%2 != 0 {
-			slog.Error("invalid format for -a")
-			os.Exit(1)
-		}
-		for i := range len(splitAddDevs) / 2 {
-			addDevs = append(addDevs, miot.AddDeviceRequest{
-				IPAddr: splitAddDevs[i],
-				Token:  splitAddDevs[i+1],
-			})
-		}
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	newDevs := make(config.Devices)
-	if len(addDevs) > 0 {
+	if len(addDevReqs) > 0 {
 		newDevMetas, err := miot.DevicesToAdd(ctx, miot.AddDeviceArgs{
 			Prefix:       pfx,
 			Global:       &gc,
 			GlobalLogger: l,
-			Reqs:         addDevs,
+			Reqs:         addDevReqs,
 		})
 		if err != nil {
 			l.Error("add new devices", "reason", err)

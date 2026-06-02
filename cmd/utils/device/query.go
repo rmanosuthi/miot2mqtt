@@ -9,7 +9,7 @@ import (
 
 type devQueryArgs struct {
 	Instance common.MinInstance
-	Entries  devEntries
+	Entries  miot.AddDeviceRequests
 	Strict   bool
 }
 
