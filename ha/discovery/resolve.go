@@ -7,9 +7,6 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
-const IdxClassHint = 2
-
-var ErrDevNoHint = errors.New("device has no class hint")
 var ErrNoMandatoryProp = errors.New("no such mandatory property with name")
 
 // Resolver used to be an important struct in
@@ -51,17 +48,6 @@ func (r *Resolver) NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *
 		Origin:     origin,
 		Components: components,
 	}, nil
-}
-
-// Hint tries to figure out a device's class.
-// Examples: "fan", "air-purifier".
-func Hint(md *miot.Device) (string, error) {
-	svc, ok := md.Services[IdxClassHint]
-	if !ok {
-		return "", ErrDevNoHint
-	}
-	svcName := svc.Type.Name.Value()
-	return svcName, nil
 }
 
 // GetDeviceTopic returns the base topic for a device.
