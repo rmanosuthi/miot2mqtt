@@ -24,6 +24,31 @@
 //   - "Spec" is a device's spec's service's properties.
 //
 //     See [config.SpecService.Properties].
+//
+//   - "Value map" is a transformation between a value the device expects
+//     and a value from an external source.
+//     The external source is usually from HA.
+//
+// # Request submission
+//
+// Get/set requests to a device can be sent by following these steps:
+//
+//  1. Get needed [prop.PropKey]s and associated [config.SpecProp]s from [Device].
+//
+//  2. [wire.ValueMap] will depend on the property.
+//     Most should use [wire.IdentityValueMap].
+//
+//  3. The request will be of type [prop.GetPropsReq] or [prop.SetPropsReq],
+//     both being a map from [prop.PropKey] to Get/SetProp.
+//     Create the map and call [prop.NewGetProp] or [prop.NewSetProp]
+//     for each property.
+//     Both constructors require [config.SpecProp] and [wire.ValueMap],
+//     and will mutate the request in place.
+//
+//  4. Submit the request using [GetProperties] or [SetProperties].
+//
+//  5. Iterate over the request. Each property's value will be in
+//     .Response.Value; see [wire.MiValue].
 package miot
 
 import (
@@ -31,40 +56,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"math/rand/v2"
 	"net/netip"
 	"time"
 
-	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
-// GetProperties sends a query to the device to get filtered properties' values.
-// A predicate is accepted to only filter for properties of interest.
+// GetProperties sends a query to the device to get
+// requested properties.
 // Be mindful of the query size as some devices will return an error when
 // a query is too big.
-//
-// Response types can be assumed to have been checked, but the caller may still want to typecast them.
-//
 // Cancel ctx to abort the request.
-func (dev *Device) GetProperties(ctx context.Context, predicate func(config.URN, prop.PropKey) bool) (prop.GetPropsReq, error) {
-	req := make(prop.GetPropsReq)
-	for urn, propKey := range dev.PropKeys {
-		if predicate(urn, propKey) {
-			dev.l.Debug("GetProperties", "urn", urn)
-			req[propKey] = &prop.GetProp{}
-		}
-	}
-
-	err := dev.getProperties(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("GetProperties: %w", err)
-	}
-
-	return req, nil
+//
+// See [Request Submission] for more info.
+func (dev *Device) GetProperties(ctx context.Context, req prop.GetPropsReq) error {
+	return dev.getProperties(ctx, req)
 }
 
 // getProperties is a low-level helper to
@@ -142,11 +151,8 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	}
 
 	for key, prop := range req {
-		spec, ok := dev.Props[key]
-		if !ok {
-			return errors.Join(ErrDeviceRecv, fmt.Errorf("type mismatch"))
-		}
-		resp, err := key.Unwrap(spec, rprops)
+		vm := prop.ValueMap(key)
+		resp, err := key.Unwrap(rprops, vm)
 		if err != nil {
 			return errors.Join(ErrDeviceRecv, err)
 		}
@@ -157,7 +163,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 
 // SetProperty sends a single query to the device to
 // set a single property.
-func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req *prop.SetProp) error {
+func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req prop.SetProp) error {
 	return dev.setProperties(ctx, prop.SetPropsReq{
 		key: req,
 	})
@@ -238,7 +244,8 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	}
 
 	for key, setProp := range req {
-		resp, err := key.Unwrap(dev.Props[key], rprops)
+		vm := setProp.ValueMap(key)
+		resp, err := key.Unwrap(rprops, vm)
 		if err != nil {
 			return errors.Join(ErrDeviceRecv, err)
 		}

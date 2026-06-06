@@ -8,10 +8,13 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
+// PropKey is a typesafe accessor for operations on
+// device properties.
 type PropKey struct {
 	DID  string
 	SIID config.SpecID
 	PIID config.SpecID
+	ty   wire.MiType
 }
 
 func Parse(spec *config.Spec) (PropKeys, Props) {
@@ -28,6 +31,7 @@ func Parse(spec *config.Spec) (PropKeys, Props) {
 				DID:  diid,
 				SIID: siid,
 				PIID: piid,
+				ty:   prop.Format,
 			}
 			propKeys[purn] = key
 			props[key] = prop
@@ -37,21 +41,20 @@ func Parse(spec *config.Spec) (PropKeys, Props) {
 }
 
 type KeyUnwrapError struct {
-	FieldName    string
 	ExpectedType wire.MiType
 	Value        json.RawMessage
 }
 
 func (e *KeyUnwrapError) Error() string {
 	typeName, _ := e.ExpectedType.MarshalText()
-	return fmt.Sprintf("field %v, expected type %v, found %#v", e.FieldName, string(typeName), e.Value)
+	return fmt.Sprintf("expected type %v, found %#v", string(typeName), e.Value)
 }
 
 // Unwrap extracts a single response from a list of responses
-// using a key and a spec.
+// using a key and a value map.
 // This function guarantees the response has already been
-// typechecked against the spec's Format.
-func (key *PropKey) Unwrap(spec config.SpecProp, resp []responseEntry) (ResponseEntry, error) {
+// typechecked against the key's type.
+func (key *PropKey) Unwrap(resp []responseEntry, valueMap wire.ValueMap) (ResponseEntry, error) {
 	kdid := key.DID
 	ksiid := key.SIID
 	kpiid := key.PIID
@@ -66,16 +69,16 @@ func (key *PropKey) Unwrap(spec config.SpecProp, resp []responseEntry) (Response
 			if rprop.Value == nil {
 				return ResponseEntry{}, nil
 			}
-			if _, ok := spec.Format.Cast(rprop.Value); !ok {
+			miVal, err := key.ty.Convert(rprop.Value, valueMap.MiotHA)
+			if err != nil {
 				return ResponseEntry{}, &KeyUnwrapError{
-					FieldName:    spec.Name(),
-					ExpectedType: spec.Format,
+					ExpectedType: key.ty,
 					Value:        rprop.Value,
 				}
 			}
 			return ResponseEntry{
 				Code:  rprop.Code,
-				Value: rprop.Value,
+				Value: miVal,
 			}, nil
 		}
 	}

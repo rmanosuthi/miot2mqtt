@@ -10,14 +10,16 @@ var HorzAngle = d.Component{
 		"horizontal-angle": d.PropDecl{
 			Mandatory: true,
 			Prefix:    "",
-			More: func(s spec) (decl, error) {
+			Expand: func(s spec) (d.PropExpansion, error) {
 				res, err := d.MinMax[uint16](s)
 				if err != nil {
-					return decl{}, err
+					return d.PropExpansion{}, err
 				}
-				return decl{
-					"min": res.Min,
-					"max": res.Max,
+				return d.PropExpansion{
+					Attributes: map[string]any{
+						"min": res.Min,
+						"max": res.Max,
+					},
 				}, nil
 			},
 		},

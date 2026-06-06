@@ -119,10 +119,10 @@ WaitForTopics:
 				// DevicePool is done responding
 				break WaitForTopics
 			}
-			for subTopic := range devTopics.SubTopics {
+			for topic, _ := range devTopics.SubTopics {
 				// append subs
 				subs = append(subs, paho.SubscribeOptions{
-					Topic: subTopic,
+					Topic: string(topic),
 					QoS:   1,
 				})
 			}
@@ -314,7 +314,7 @@ func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	l.Debug("remove routes subs")
 	for devTopics := range chSubs {
 		for topic := range devTopics.SubTopics {
-			topics = append(topics, topic)
+			topics = append(topics, topic.MQTT())
 		}
 		mq.router.UnregisterHandler(devTopics.RouteGlob)
 	}
@@ -375,7 +375,7 @@ func mqttHandleDpMsg(ctx context.Context, conn *autopaho.ConnectionManager, msg 
 		for topic, payload := range msg.Payload {
 			_, err := conn.Publish(ctx, &paho.Publish{
 				QoS:     1,
-				Topic:   topic,
+				Topic:   topic.MQTT(),
 				Payload: payload,
 			})
 			if err != nil {
