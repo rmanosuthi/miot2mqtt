@@ -36,6 +36,7 @@ package ha
 import (
 	"fmt"
 
+	"github.com/rmanosuthi/miot2mqtt/ha/airp"
 	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/ha/fan"
 	"github.com/rmanosuthi/miot2mqtt/miot"
@@ -69,6 +70,11 @@ func MatchDevice(md *miot.Device) ([]discovery.Component, error) {
 		return []discovery.Component{
 			fan.Fan,
 			fan.HorzAngle,
+		}, nil
+	case "air-purifier":
+		return []discovery.Component{
+			airp.Fan,
+			airp.RelHumid,
 		}, nil
 	default:
 		return nil, ErrDevUnsupported{
