@@ -63,11 +63,7 @@ func (e ErrDevUnsupported) Error() string {
 //
 // All possible components a device may possess are returned.
 func MatchDevice(md *miot.Device) ([]discovery.Component, error) {
-	hint, err := discovery.Hint(md)
-	if err != nil {
-		return nil, err
-	}
-
+	hint := md.Class
 	switch hint {
 	case "fan":
 		return []discovery.Component{

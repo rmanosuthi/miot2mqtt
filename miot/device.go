@@ -49,6 +49,8 @@ type Device struct {
 	Alias string
 	// Model name, usually formatted "a.b.c".
 	Model string
+	// Device class. Extracted from spec's toplevel URN.
+	Class string
 	// Address and port to communicate with device.
 	Addr netip.AddrPort
 	// Encryption and decryption object.
@@ -216,6 +218,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 		DeviceID:   args.DeviceID,
 		Alias:      dev.Alias,
 		Model:      dev.Model,
+		Class:      spec.Type.Name.Value(),
 		Addr:       addrPort,
 		Token:      token,
 		Services:   services,
