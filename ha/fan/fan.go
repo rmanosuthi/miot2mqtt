@@ -8,7 +8,6 @@ import (
 
 type key = prop.PropKey
 type spec = *config.SpecProp
-type decl = map[string]any
 
 var Fan = d.Component{
 	Mandatory: true,
@@ -24,14 +23,16 @@ var Fan = d.Component{
 		},
 		"fan-level": d.PropDecl{
 			Prefix: "percentage",
-			More: func(s spec) (decl, error) {
+			Expand: func(s spec) (d.PropExpansion, error) {
 				res, err := d.MinMax[uint8](s)
 				if err != nil {
-					return decl{}, err
+					return d.PropExpansion{}, err
 				}
-				return decl{
-					"speed_range_min": res.Min,
-					"speed_range_max": res.Max,
+				return d.PropExpansion{
+					Attributes: map[string]any{
+						"speed_range_min": res.Min,
+						"speed_range_max": res.Max,
+					},
 				}, nil
 			},
 		},

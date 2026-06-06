@@ -27,8 +27,8 @@ func NewResolver() (Resolver, error) {
 
 // ResolveDiscovery returns the HA discovery topic for
 // a device.
-func (r *Resolver) ResolveDiscovery(did wire.DeviceID) string {
-	return "homeassistant/device/" + did.String() + "/config"
+func (r *Resolver) ResolveDiscovery(did wire.DeviceID) Topic {
+	return Topic("homeassistant/device/" + did.String() + "/config")
 }
 
 // NewDiscovery assembles a discovery message for a device by

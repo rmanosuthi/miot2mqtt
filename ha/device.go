@@ -18,7 +18,6 @@ import (
 	"maps"
 	"time"
 
-	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 
@@ -34,8 +33,8 @@ type Device struct {
 	md            miot.Device
 	l             *slog.Logger
 	rsv           *discovery.Resolver
-	CommandTopics map[string]config.URN
-	StateTopics   map[config.URN]string
+	CommandTopics discovery.TopicMap
+	StateTopics   discovery.TopicMap
 	EnumTopics    DpMqConnInfo
 	// Recognized: DpDevReqDiscovery
 	mbox chan any
@@ -67,8 +66,8 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	deviceTopic := args.Resolver.GetDeviceTopic(did)
 
 	var components []discovery.ComponentHandle
-	commandTopics := make(map[string]config.URN)
-	stateTopics := make(map[config.URN]string)
+	commandTopics := make(discovery.TopicMap)
+	stateTopics := make(discovery.TopicMap)
 
 	for _, cmp := range cmps {
 		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
@@ -150,7 +149,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 	did := dev.md.DeviceID
 	l.Info("service is live")
 	// make each component online
-	cmpsOnline := make(map[string][]byte)
+	cmpsOnline := make(PostMultiple)
 	for _, ch := range dev.components {
 		cmpsOnline[ch.AvailTopic] = []byte("online")
 	}
@@ -207,7 +206,7 @@ func (dev *Device) shutdown(ctx context.Context) error {
 	l.Debug("update avail offline")
 	post := DevMqPost{
 		DID:     did,
-		Payload: make(map[string][]byte),
+		Payload: make(PostMultiple),
 	}
 	for _, cmp := range dev.components {
 		post.Payload[cmp.AvailTopic] = []byte("offline")
@@ -250,7 +249,7 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 		l.Debug("created discovery payload", "msg", string(decl))
 		post := DevMqPost{
 			DID: did,
-			Payload: map[string][]byte{
+			Payload: PostMultiple{
 				dev.rsv.ResolveDiscovery(did): decl,
 			},
 		}

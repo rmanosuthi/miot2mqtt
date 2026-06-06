@@ -13,7 +13,6 @@ var ErrNoMinMax = errors.New("property does not have min/max range")
 
 type key = prop.PropKey
 type spec = *config.SpecProp
-type decl = map[string]any
 
 // PropDecl represents attributes that will be associated with a miot property.
 type PropDecl struct {
@@ -26,12 +25,14 @@ type PropDecl struct {
 	// Prefix gets prepended to generated attribute names.
 	// An empty value means this route belongs to a component's main property.
 	Prefix string
-	// More will be resolved to append more attributes,
+	// (Optional) Expand will be called to
+	// generate [wire.ValueMap] and
+	// append more attributes,
 	// which don't have to be MQTT paths, to the result.
 	// The spec will be that of the URN matched by its Name segment.
 	//
-	// Example: let HA know of a Number's min-max value range.
-	More func(spec) (decl, error)
+	// See [PropExpansion] for a longer explanation.
+	Expand func(spec) (PropExpansion, error)
 }
 
 // Attr returns the attribute fragment of a property.

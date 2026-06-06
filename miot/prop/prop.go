@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
 var ErrParseResponse = errors.New("failed to parse miot response")
@@ -42,7 +43,7 @@ type responseEntry struct {
 // It can be obtained by [PropKey.Unwrap].
 type ResponseEntry struct {
 	Code  int32
-	Value json.RawMessage
+	Value wire.MiValue
 }
 
 type responseError struct {
@@ -59,13 +60,6 @@ type rawResponse struct {
 	Error   *responseError  `json:"error,omitempty"`
 	Result  []responseEntry `json:"result,omitempty"`
 	ExeTime uint32          `json:"exe_time"`
-}
-
-// AllProperties is used as a predicate for GetProperties to return all properties.
-//
-// Not recommended as some devices can't respond to large queries.
-func AllProperties(string, PropKey) bool {
-	return true
 }
 
 func ParseResponse(jsonBytes []byte) ([]responseEntry, error) {

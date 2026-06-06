@@ -1,11 +1,22 @@
 package prop
 
+import "github.com/rmanosuthi/miot2mqtt/wire"
+
 type GetProp struct {
 	Response ResponseEntry
 	Error    error
+	valueMap wire.ValueMap
 }
 
-type GetPropsReq = map[PropKey]*GetProp
+func (gp *GetProp) ValueMap(_ PropKey) wire.ValueMap {
+	return gp.valueMap
+}
+
+func NewGetProp(_ PropKey, vm wire.ValueMap) GetProp {
+	return GetProp{valueMap: vm}
+}
+
+type GetPropsReq = map[PropKey]GetProp
 
 // Puts keys in req into the wire format struct.
 func MakeGetQuery(connId uint32, req GetPropsReq) (rawQuery, error) {

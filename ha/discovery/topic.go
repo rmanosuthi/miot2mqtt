@@ -52,8 +52,8 @@ func (ct ComponentTopic) AvailRel() string {
 	return "~/availability"
 }
 
-func (ct ComponentTopic) AvailTopic() string {
-	return string(ct) + "/availability"
+func (ct ComponentTopic) AvailTopic() Topic {
+	return Topic(string(ct) + "/availability")
 }
 
 func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
@@ -64,18 +64,18 @@ func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
 	}
 }
 
-func (pt PropertyTopic) Command(abs bool) string {
+func (pt PropertyTopic) Command(abs bool) Topic {
 	if abs {
-		return pt.abs + "/command"
+		return Topic(pt.abs + "/command")
 	} else {
-		return pt.rel + "/command"
+		return Topic(pt.rel + "/command")
 	}
 }
 
-func (pt PropertyTopic) State(abs bool) string {
+func (pt PropertyTopic) State(abs bool) Topic {
 	if abs {
-		return pt.abs + "/state"
+		return Topic(pt.abs + "/state")
 	} else {
-		return pt.rel + "/state"
+		return Topic(pt.rel + "/state")
 	}
 }

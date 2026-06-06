@@ -29,11 +29,11 @@ type ComponentHandle struct {
 	did wire.DeviceID
 	// HA platform of the component. Examples: "fan", "number", "switch"
 	platform      string
-	CommandTopics map[string]config.URN
-	StateTopics   map[config.URN]string
+	CommandTopics TopicMap
+	StateTopics   TopicMap
 	Discovery     ComponentDiscovery
 	Canon         string
-	AvailTopic    string
+	AvailTopic    Topic
 }
 
 // A Component is a controllable single-platform entity
@@ -124,8 +124,8 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform
 	did := dev.DeviceID
-	commandTopics := make(map[string]config.URN)
-	stateTopics := make(map[config.URN]string)
+	commandTopics := make(TopicMap)
+	stateTopics := make(TopicMap)
 
 	decls := cmp.Properties
 	cmpDiscov := make(ComponentDiscovery)
@@ -189,8 +189,8 @@ type attachPropDeclArgs struct {
 }
 
 type attachPropDeclDst struct {
-	CommandTopics map[string]config.URN
-	StateTopics   map[config.URN]string
+	CommandTopics TopicMap
+	StateTopics   TopicMap
 	CmpDiscovery  ComponentDiscovery
 }
 
@@ -206,18 +206,29 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 	prop := args.Spec
 	componentTopic := args.ComponentTopic
 
-	var more map[string]any
-	var err error
-	if decl.More != nil {
-		more, err = decl.More(prop)
+	var discovAttrs map[string]any
+	var vm wire.ValueMap
+
+	// default to identity map
+	vm = &wire.IdentityValueMap{}
+
+	if decl.Expand != nil {
+		exp, err := decl.Expand(prop)
 		if err != nil {
 			return errors.Join(
 				ErrComponentAttach,
 				err,
 			)
 		}
+
+		// insert expanded attributes
+		discovAttrs = exp.Attributes
+
+		if exp.ValueMap != nil {
+			vm = exp.ValueMap
+		}
 	}
-	maps.Insert(dst.CmpDiscovery, maps.All(more))
+	maps.Insert(dst.CmpDiscovery, maps.All(discovAttrs))
 
 	if prop.Format == wire.MiTypeBool {
 		dst.CmpDiscovery["payload_"+attr+"on"] = "true"
@@ -230,7 +241,12 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		dst.CmpDiscovery[attr+"state_topic"] = propTopic.State(false)
 
 		// state topic in table: absolute
-		dst.StateTopics[prop.Urn] = propTopic.State(true)
+		topic := propTopic.State(true)
+
+		dst.StateTopics[topic] = TopicEntry{
+			URN:      prop.Urn,
+			ValueMap: vm,
+		}
 	}
 
 	if prop.Write() {
@@ -238,7 +254,11 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		dst.CmpDiscovery[attr+"command_topic"] = propTopic.Command(false)
 
 		// command topic in table: absolute
-		dst.CommandTopics[propTopic.Command(true)] = prop.Urn
+		topic := propTopic.Command(true)
+		dst.CommandTopics[topic] = TopicEntry{
+			URN:      prop.Urn,
+			ValueMap: vm,
+		}
 	}
 
 	return nil

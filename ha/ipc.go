@@ -22,11 +22,12 @@
 package ha
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/eclipse/paho.golang/autopaho"
 	paho "github.com/eclipse/paho.golang/paho"
-	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -66,7 +67,7 @@ type DpMqConnInfo struct {
 	// Route glob topic.
 	RouteGlob string
 	// Subscription topics.
-	SubTopics map[string]config.URN
+	SubTopics discovery.TopicMap
 	// Callback to process the message.
 	ForwardTo func(*paho.Publish)
 }
@@ -76,5 +77,7 @@ type DpDevReqDiscovery MqDpReqDiscovery
 // DevMqPost is a generic message.
 type DevMqPost struct {
 	DID     wire.DeviceID
-	Payload map[string][]byte
+	Payload PostMultiple
 }
+
+type PostMultiple = map[discovery.Topic]json.RawMessage
