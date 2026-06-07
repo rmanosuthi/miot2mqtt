@@ -3,6 +3,8 @@ package wire
 import (
 	"errors"
 	"log/slog"
+
+	"golang.org/x/exp/constraints"
 )
 
 var ErrTypeConv = errors.New("type conversion")
@@ -43,22 +45,35 @@ func (im *IdentityValueMap) HAMiot(src any) (any, error) {
 //
 // HA would need to see 1-3 and the air purifier 0-2.
 // An [IntOffsetMap] of value -1 would do so.
-type IntOffsetMap int
+// TODO check correctness with uint64
+type IntOffsetMap[T constraints.Integer] int64
 
-func (im *IntOffsetMap) MiotHA(src any) (any, error) {
-	slog.Debug("int offset map", "direction", "miot -> ha", "value", *im)
-	v, ok := src.(int)
+func (im *IntOffsetMap[T]) MiotHA(src any) (any, error) {
+	isT, ok := src.(T)
 	if !ok {
 		return nil, ErrTypeConv
 	}
-	return v - int(*im), nil
+
+	tmpVal := int64(isT)
+	slog.Debug("int offset map", "direction", "miot -> ha", "offset", *im, "src", tmpVal)
+	tmpVal -= int64(*im)
+
+	var res T
+	res = T(tmpVal)
+	return res, nil
 }
 
-func (im *IntOffsetMap) HAMiot(src any) (any, error) {
-	slog.Debug("int offset map", "direction", "ha -> miot", "value", *im)
-	v, ok := src.(int)
+func (im *IntOffsetMap[T]) HAMiot(src any) (any, error) {
+	isT, ok := src.(T)
 	if !ok {
 		return nil, ErrTypeConv
 	}
-	return v + int(*im), nil
+
+	tmpVal := int64(isT)
+	slog.Debug("int offset map", "direction", "ha -> miot", "offset", *im, "src", tmpVal)
+	tmpVal += int64(*im)
+
+	var res T
+	res = T(tmpVal)
+	return res, nil
 }

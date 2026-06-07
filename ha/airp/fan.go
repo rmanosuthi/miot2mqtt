@@ -27,7 +27,7 @@ var Fan = d.Component{
 					return d.PropExpansion{}, err
 				}
 				if res.Min == 0 {
-					offsetMap := wire.IntOffsetMap(-1)
+					offsetMap := wire.IntOffsetMap[uint8](-1)
 					// apply an offset
 					return d.PropExpansion{
 						Attributes: map[string]any{

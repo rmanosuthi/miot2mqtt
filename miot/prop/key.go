@@ -47,7 +47,7 @@ type KeyUnwrapError struct {
 
 func (e *KeyUnwrapError) Error() string {
 	typeName, _ := e.ExpectedType.MarshalText()
-	return fmt.Sprintf("expected type %v, found %#v", string(typeName), e.Value)
+	return fmt.Sprintf("expected type %v, found %v", string(typeName), string(e.Value))
 }
 
 // Unwrap extracts a single response from a list of responses
