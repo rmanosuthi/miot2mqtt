@@ -41,7 +41,7 @@ func NewDevicePool(ctx context.Context, mDevs miot.MapDevices, args DevicePoolAr
 			Pool:         chDevs,
 		})
 		if err != nil {
-			if err, ok := errors.AsType[ErrDevUnsupported](err); ok {
+			if _, ok := errors.AsType[ErrDevUnsupported](err); ok {
 				continue
 			} else {
 				return DevicePool{}, fmt.Errorf("new device: %w", err)
