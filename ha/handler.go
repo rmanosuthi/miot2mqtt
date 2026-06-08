@@ -19,7 +19,7 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 	for topic, entry := range dev.StateTopics {
 		key := entry.PropKey
 		gp := prop.NewGetProp(key, entry.ValueMap)
-		req[key] = gp
+		req[key] = &gp
 		topics[key] = topic
 	}
 

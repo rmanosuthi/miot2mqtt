@@ -16,7 +16,9 @@ func NewGetProp(_ PropKey, vm wire.ValueMap) GetProp {
 	return GetProp{valueMap: vm}
 }
 
-type GetPropsReq = map[PropKey]GetProp
+// GetPropsReq is the request type for GetProperties.
+// The value is a pointer since we mutate the argument in place.
+type GetPropsReq = map[PropKey]*GetProp
 
 // Puts keys in req into the wire format struct.
 func MakeGetQuery(connId uint32, req GetPropsReq) (rawQuery, error) {
