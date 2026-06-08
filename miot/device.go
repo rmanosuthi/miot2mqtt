@@ -94,6 +94,11 @@ func (dev *Device) ServiceName(n string) (Service, bool) {
 	return Service{}, false
 }
 
+// FindPropKey tries to find a PropKey and a SpecProp
+// given a service and the property's name.
+// Service is used to only search for
+// properties with a matching name belonging to
+// the service.
 func (dev *Device) FindPropKey(svc *Service, name string) (prop.Pair, bool) {
 	for key, specProp := range dev.Props {
 		if key.SIID == svc.IID && specProp.Urn.Name.Value() == name {
@@ -103,7 +108,10 @@ func (dev *Device) FindPropKey(svc *Service, name string) (prop.Pair, bool) {
 	return prop.Pair{}, false
 }
 
-// AddDeviceRequest is a pair of unverified IP Address and Token strings.
+// AddDeviceRequest is a pair of unverified IP Address and Token strings,
+// with its flag form being
+//
+//	IPAddr,Token
 type AddDeviceRequest struct {
 	IPAddr string
 	Token  string
@@ -111,7 +119,10 @@ type AddDeviceRequest struct {
 
 // AddDeviceRequests is a list of unverified IP Addresses and Token strings.
 //
-// It implements the [flag.Value] interface.
+// It implements the [flag.Value] interface and each request
+// is encoded as
+//
+//	IPAddr,Token
 type AddDeviceRequests []AddDeviceRequest
 
 func (adr *AddDeviceRequests) String() string {
@@ -143,6 +154,7 @@ type AddDeviceArgs struct {
 	Reqs         AddDeviceRequests
 }
 
+// LoadArgs are used by [LoadDevices] and [DevicesToAdd] to load Devices.
 type LoadArgs struct {
 	// Where the prefix given by -P is.
 	Prefix *os.Root
@@ -247,23 +259,26 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 //   - access a device's state through its ID
 type MapDevices map[wire.DeviceID]Device
 
-// TODO
+// validateDeviceConfig checks that a [config.Device] is valid.
+// It does not currently do anything.
 func validateDeviceConfig(c *config.Device) error {
 	return nil
 }
 
-type parsedDevice struct {
-	config.Device
-}
+type (
+	parsedDevice struct {
+		config.Device
+	}
 
-type parsedDevices map[wire.DeviceID]parsedDevice
+	parsedDevices map[wire.DeviceID]parsedDevice
 
-type intermediateDevice struct {
-	config.Device
-	config.Spec
-}
+	intermediateDevice struct {
+		config.Device
+		config.Spec
+	}
 
-type intermediateDevices map[wire.DeviceID]intermediateDevice
+	intermediateDevices map[wire.DeviceID]intermediateDevice
+)
 
 func populateSpec(
 	ctx context.Context, dev parsedDevice,

@@ -45,7 +45,6 @@ func (im *IdentityValueMap) HAMiot(src any) (any, error) {
 //
 // HA would need to see 1-3 and the air purifier 0-2.
 // An [IntOffsetMap] of value -1 would do so.
-// TODO check correctness with uint64
 type IntOffsetMap[T constraints.Integer] int64
 
 func (im *IntOffsetMap[T]) MiotHA(src any) (any, error) {
@@ -54,6 +53,7 @@ func (im *IntOffsetMap[T]) MiotHA(src any) (any, error) {
 		return nil, ErrTypeConv
 	}
 
+	// TODO check correctness when src is uint64
 	tmpVal := int64(isT)
 	slog.Debug("int offset map", "direction", "miot -> ha", "offset", *im, "src", tmpVal)
 	tmpVal -= int64(*im)
@@ -69,6 +69,7 @@ func (im *IntOffsetMap[T]) HAMiot(src any) (any, error) {
 		return nil, ErrTypeConv
 	}
 
+	// TODO check correctness when src is uint64
 	tmpVal := int64(isT)
 	slog.Debug("int offset map", "direction", "ha -> miot", "offset", *im, "src", tmpVal)
 	tmpVal += int64(*im)

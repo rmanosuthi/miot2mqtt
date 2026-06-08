@@ -23,12 +23,19 @@ var ErrNoSpecHint = errors.New("tried to fetch spec with no hint")
 const SpecUrl = "https://miot-spec.org/miot-spec-v2/instance?type="
 const SpecPath = "vendor/spec/"
 
+// A Spec is specification for a single device model.
 type Spec struct {
 	Type        URN           `json:"type"`
 	Description string        `json:"description"`
 	Services    []SpecService `json:"services"`
 }
 
+// SpecService is a service provided by a device model.
+//
+// Example: an air purifier may have services
+// "air-purifier" for main controls,
+// "environment" for temperature and PM2.5 reporting, and
+// "filter" for filter status.
 type SpecService struct {
 	IID         SpecID       `json:"iid"`
 	Type        URN          `json:"type"`
@@ -42,6 +49,13 @@ func (s *SpecService) Name() string {
 	return s.Type.Name.Value()
 }
 
+// SpecProp is a property provided by a device model
+// which lives under a SpecService.
+//
+// Example: a fan may have properties
+// "on" for on/off,
+// "fan-level" for fan level, and
+// "horizontal-swing" for horizontal swing.
 type SpecProp struct {
 	IID SpecID `json:"iid"`
 	// Urn is renamed from "type" to better reflect what it is.
@@ -49,9 +63,11 @@ type SpecProp struct {
 	Description string      `json:"description"`
 	Format      wire.MiType `json:"format"`
 	Access      []string    `json:"access"`
-	// only defined when an integer/floating point
+	// A continuous integer/floating point range, defined as
+	// min, max, step.
 	ValueRange []json.Number `json:"value-range,omitempty"`
-	// integer only
+	// A list of possible integer values.
+	// May not be continuous.
 	ValueList []SpecPropValue `json:"value-list,omitempty"`
 	Unit      string          `json:"unit,omitempty"`
 	//GattAccess []any           `json:"gatt-access,omitempty"`
@@ -119,8 +135,11 @@ type SpecDownload struct {
 	Context context.Context
 }
 
+// SpecHint is information given to
+// populate a spec file.
 type SpecHint struct {
-	Model    string
+	Model string
+	// Version of the spec file. Can be determined from Metaspec.
 	Version  uint64
 	Download *SpecDownload
 }

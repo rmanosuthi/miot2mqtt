@@ -28,10 +28,16 @@ const (
 // Types generally align with Go type names.
 type MiType int
 
+// MiValue is a container produced by [MiType.Convert]
+// which contains both
+// the Go value and its marshaled form.
 type MiValue struct {
-	Type       MiType
+	// A copy of the type is kept.
+	Type MiType
+	// Marshaled value.
 	RawMessage json.RawMessage
-	Value      any
+	// Go value.
+	Value any
 }
 
 // UnmarshalText parses a JSON string as a MiType.

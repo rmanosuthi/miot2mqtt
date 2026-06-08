@@ -18,7 +18,10 @@ func getPaddedSize(src []byte, align uint8) int {
 	}
 }
 
-// PKCS7
+// padBytes implements PKCS7 padding:
+// round src len up to a multiple of align,
+// fill in missing bytes with the numerical difference between
+// original len and new len.
 func padBytes(src []byte, align uint8) ([]byte, error) {
 	// special case: len(src) % align == 0
 	// add a whole block
@@ -44,7 +47,9 @@ func padBytes(src []byte, align uint8) ([]byte, error) {
 	return dst, nil
 }
 
-// PKCS7
+// unpadBytes implements PKCS7 unpadding:
+// read the last byte of src, trim off its len by
+// the numeric value of said value.
 func unpadBytes(src []byte, align uint8) ([]byte, error) {
 	lSrc := len(src)
 	if lSrc == 0 {
