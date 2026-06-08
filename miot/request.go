@@ -163,7 +163,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 
 // SetProperty sends a single query to the device to
 // set a single property.
-func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req prop.SetProp) error {
+func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req *prop.SetProp) error {
 	return dev.setProperties(ctx, prop.SetPropsReq{
 		key: req,
 	})

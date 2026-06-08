@@ -18,7 +18,9 @@ func (sp *SetProp) ValueMap(_ PropKey) wire.ValueMap {
 	return sp.valueMap
 }
 
-type SetPropsReq = map[PropKey]SetProp
+// SetPropsReq is the request type for SetProperties.
+// The value is a pointer since we mutate the argument in place.
+type SetPropsReq = map[PropKey]*SetProp
 
 func NewSetProp(key PropKey, value json.RawMessage, valueMap wire.ValueMap) (SetProp, error) {
 	convVal, err := key.ty.Convert(value, valueMap.HAMiot)
@@ -32,7 +34,7 @@ func NewSetProp(key PropKey, value json.RawMessage, valueMap wire.ValueMap) (Set
 	}, nil
 }
 
-func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, SetProp]) (rawQuery, error) {
+func MakeSetQuery(connId uint32, keys iter.Seq2[PropKey, *SetProp]) (rawQuery, error) {
 	var props []queryEntry
 	for key, setProp := range keys {
 		props = append(props, queryEntry{

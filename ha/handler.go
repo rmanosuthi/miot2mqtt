@@ -64,11 +64,13 @@ func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload [
 		return DevMqPost{}, fmt.Errorf("new set prop failed: %w", err)
 	}
 
-	err = dev.md.SetProperty(ctx, key, req)
+	err = dev.md.SetProperty(ctx, key, &req)
 	if err != nil {
 		return DevMqPost{}, fmt.Errorf("set prop failed: %w", err)
 	}
 
+	// echo the command payload back since
+	// device may not respond with the value
 	statePayload := map[discovery.Topic]json.RawMessage{
 		stateTopic: payload,
 	}
