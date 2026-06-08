@@ -17,15 +17,13 @@ type PropKey struct {
 	ty   wire.MiType
 }
 
-func Parse(spec *config.Spec) (PropKeys, Props) {
+func Parse(spec *config.Spec) (map[PropKey]config.SpecProp, error) {
 	diid := ""
 
-	propKeys := make(PropKeys)
-	props := make(Props)
+	props := make(map[PropKey]config.SpecProp)
 	for _, svc := range spec.Services {
 		siid := svc.IID
 		for _, prop := range svc.Properties {
-			purn := prop.Urn
 			piid := prop.IID
 			key := PropKey{
 				DID:  diid,
@@ -33,11 +31,10 @@ func Parse(spec *config.Spec) (PropKeys, Props) {
 				PIID: piid,
 				ty:   prop.Format,
 			}
-			propKeys[purn] = key
 			props[key] = prop
 		}
 	}
-	return propKeys, props
+	return props, nil
 }
 
 type KeyUnwrapError struct {

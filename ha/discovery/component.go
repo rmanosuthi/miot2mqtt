@@ -10,6 +10,7 @@ import (
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -92,7 +93,15 @@ type Component struct {
 	Mandatory bool
 	// Alias is the user-facing name of the component.
 	Alias string
+	// Service is the spec service property declarations should be matched from.
+	//
+	// Example: "physical-controls-locked" will only allow properties
+	// under the service
+	// "urn:miot-spec-v2:service:physical-controls-locked:..."
+	// to be matched.
+	Service string
 	// Platform is an interaction UI group on HA.
+	//
 	// Example: "fan" has a window allowing change of fan speed,
 	// oscillation, and toggling on/off.
 	//
@@ -141,8 +150,16 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		CmpDiscovery:  cmpDiscov,
 	}
 
+	svc, ok := dev.ServiceName(cmp.Service)
+	if !ok {
+		return ComponentHandle{}, errors.Join(
+			ErrComponentAttach,
+			fmt.Errorf("no service with name %v", cmp.Service),
+		)
+	}
+
 	for matchName, decl := range decls {
-		specProp, ok := dev.PropName(matchName)
+		pair, ok := dev.FindPropKey(&svc, matchName)
 		if !ok {
 			if decl.Mandatory {
 				// property not found. fail if Mandatory.
@@ -160,7 +177,8 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 		// try to attach this PropDecl
 		err := attachPropDecl(dst, attachPropDeclArgs{
 			Decl:           &decl,
-			Spec:           &specProp,
+			Spec:           &pair.Spec,
+			Key:            pair.Key,
 			ComponentTopic: &componentTopic,
 		})
 		if err != nil {
@@ -188,6 +206,7 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 type attachPropDeclArgs struct {
 	Decl           *PropDecl
 	Spec           *config.SpecProp
+	Key            prop.PropKey
 	ComponentTopic *ComponentTopic
 }
 
@@ -247,7 +266,7 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		topic := propTopic.State(true)
 
 		dst.StateTopics[topic] = TopicEntry{
-			URN:      prop.Urn,
+			PropKey:  args.Key,
 			ValueMap: vm,
 		}
 	}
@@ -259,7 +278,7 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		// command topic in table: absolute
 		topic := propTopic.Command(true)
 		dst.CommandTopics[topic] = TopicEntry{
-			URN:      prop.Urn,
+			PropKey:  args.Key,
 			ValueMap: vm,
 		}
 	}

@@ -11,9 +11,6 @@ import (
 
 var ErrParseResponse = errors.New("failed to parse miot response")
 
-type PropKeys = map[config.URN]PropKey
-type Props = map[PropKey]config.SpecProp
-
 type rawQuery struct {
 	ID     uint32       `json:"id"`
 	Method string       `json:"method"`
@@ -72,4 +69,9 @@ func ParseResponse(jsonBytes []byte) ([]responseEntry, error) {
 		return nil, errors.Join(ErrParseResponse, resp.Error)
 	}
 	return resp.Result, nil
+}
+
+type Pair struct {
+	Key  PropKey
+	Spec config.SpecProp
 }

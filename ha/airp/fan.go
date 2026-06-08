@@ -13,6 +13,7 @@ type spec = *config.SpecProp
 var Fan = d.Component{
 	Mandatory: true,
 	Alias:     "Fan",
+	Service:   "air-purifier",
 	Platform:  "fan",
 	Properties: d.PropDecls{
 		"on": d.PropDecl{

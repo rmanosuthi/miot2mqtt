@@ -64,10 +64,8 @@ type Device struct {
 	// Map from [ActionKey] to [SpecAction].
 	Actions Actions
 
-	// Map from URN to [PropKey].
-	PropKeys prop.PropKeys
 	// Map from [PropKey] to [SpecProp]. See [Device Properties].
-	Props prop.Props
+	Props map[prop.PropKey]config.SpecProp
 
 	dialer net.Dialer
 	// Devices have a second-precision timestamp with the epoch being
@@ -84,17 +82,25 @@ type Device struct {
 	l *slog.Logger
 }
 
-// PropName tries to find a [config.SpecProp] associated with
+// ServiceName tries to find a Service associated with
 // the URN with a Name of n.
 // Meant to be used by HA.
-func (dev *Device) PropName(n string) (config.SpecProp, bool) {
-	for urn, key := range dev.PropKeys {
-		if urn.Name.Value() == n {
-			res, ok := dev.Props[key]
-			return res, ok
+func (dev *Device) ServiceName(n string) (Service, bool) {
+	for _, svc := range dev.Services {
+		if svc.Type.Name.Value() == n {
+			return svc, true
 		}
 	}
-	return config.SpecProp{}, false
+	return Service{}, false
+}
+
+func (dev *Device) FindPropKey(svc *Service, name string) (prop.Pair, bool) {
+	for key, specProp := range dev.Props {
+		if key.SIID == svc.IID && specProp.Urn.Name.Value() == name {
+			return prop.Pair{Key: key, Spec: specProp}, true
+		}
+	}
+	return prop.Pair{}, false
 }
 
 // AddDeviceRequest is a pair of unverified IP Address and Token strings.
@@ -193,7 +199,10 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	l.Debug("parsed services")
 	actionKeys, actions := parseActions(spec)
 	l.Debug("parsed actions")
-	propKeys, props := prop.Parse(spec)
+	props, err := prop.Parse(spec)
+	if err != nil {
+		return res, err
+	}
 	l.Debug("parsed props")
 
 	// embed port
@@ -224,7 +233,6 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 		Services:   services,
 		ActionKeys: actionKeys,
 		Actions:    actions,
-		PropKeys:   propKeys,
 		Props:      props,
 		dialer:     dialer,
 		timeStart:  timeStart,

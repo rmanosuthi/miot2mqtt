@@ -3,7 +3,7 @@ package discovery
 import (
 	"errors"
 
-	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -11,7 +11,7 @@ var ErrTypeConv = errors.New("type conversion")
 
 // TopicEntry is metadata associated with an MQTT topic.
 type TopicEntry struct {
-	URN config.URN
+	PropKey prop.PropKey
 	// ValueMap is guaranteed to not be nil.
 	ValueMap wire.ValueMap
 }
