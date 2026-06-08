@@ -1,0 +1,373 @@
+package miot
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"maps"
+	"os"
+	"slices"
+	"strconv"
+	"sync"
+
+	"github.com/rmanosuthi/miot2mqtt/config"
+	"github.com/rmanosuthi/miot2mqtt/wire"
+)
+
+// Device loading is split into these stages.
+type (
+	parsedDevice struct {
+		config.Device
+	}
+
+	parsedDevices map[wire.DeviceID]parsedDevice
+
+	intermediateDevice struct {
+		config.Device
+		config.Spec
+	}
+
+	intermediateDevices map[wire.DeviceID]intermediateDevice
+)
+
+// LoadArgs are used by [LoadDevices] and [DevicesToAdd] to load Devices.
+type LoadArgs struct {
+	// Where the prefix given by -P is.
+	Prefix *os.Root
+	// Global config.
+	Global *config.Global
+	// When Strict, device initialization will fail if
+	// it does not respond to a ping.
+	// This effectively guarantees [Device.timestamp] will not be nil upon initialization,
+	// but does not guarantee it will always be up-to-date.
+	Strict bool
+	// In-memory config devices may be given to
+	// merge with the existing config.
+	// Designed to be used with [DevicesToAdd].
+	MergeWith config.Devices
+	// GlobalLogger to be used during load.
+	GlobalLogger *slog.Logger
+}
+
+// DevicesToAdd converts each unparsed IP-Token entry into
+// [config.Device] and [config.Metaspec].
+//
+// The device config is not changed nor are [config.Spec] downloaded,
+// but [config.Metaspecs] may be downloaded.
+func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, error) {
+	l := args.GlobalLogger
+	res := make(config.DevicesMeta)
+	// load metaspecs, will need them to determine version
+	var ms config.Metaspecs
+	metaspecsArgs := config.Args[config.NoHint]{
+		Prefix: args.Prefix,
+		Global: args.Global,
+		Hint:   nil,
+		Perm:   0o644,
+	}
+	err := config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
+	}
+
+	for _, addDevReq := range args.Reqs {
+		resolvedDev, err := ResolveDevice(ctx, addDevReq, args.GlobalLogger)
+		if err != nil {
+			return nil, err
+		}
+
+		// workaround: backconvert did to string
+		// for correct key type
+		didStr := strconv.Itoa(int(resolvedDev.Info.DeviceID))
+
+		// Match whether device has already been defined by its DeviceID
+		// rather than IP or token.
+		// Unfortunately this can't be done earlier and we
+		// must have already contacted the device to do it.
+		metaspecs := slices.Values(ms.Instances)
+		meta, err := ResolveDefaultMetaspec(resolvedDev.Info.Model, metaspecs,
+			// NOTE potential optimization:
+			// just reuse another device with the same model's Version
+			func(a config.Metaspec, b config.Metaspec) int {
+				return cmp.Compare(a.Version, b.Version)
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		cfgDev := resolvedDev.WithVersion(&meta)
+		l.Debug("device", "cfg", cfgDev)
+		res[didStr] = config.DeviceMeta{
+			Device: cfgDev,
+			Meta:   meta,
+		}
+	}
+
+	l.Debug("devices to be added", "count", len(res))
+	return res, nil
+}
+
+// LoadDevices loads devices' states from disk.
+// Metaspecs may be loaded for devices without a spec file.
+// ctx is only used to cancel initialization and is not stored.
+//
+// The following steps outline the initialization process:
+//
+//	load [config.Devices]
+//	if args.MergeWith is present:
+//	 - check for DID collisions
+//	 - merge into [config.Devices]
+//	 - save config to disk
+//	for each [config.Device]:
+//	 - validate
+//	 - load spec
+//	 - if found, return as [intermediateDevice]
+//	 - else, defer loading
+//	if deferred devices present, load metaspec
+//	for each deferred device:
+//	 - populate spec from metaspec
+//	 - return as [intermediateDevice]
+//	parallel for each [intermediateDevice]:
+//	 call [newDevice]
+func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
+	l := args.GlobalLogger
+	var cfgDevices config.Devices
+	err := config.Populate(&cfgDevices, config.Args[config.NoHint]{
+		Prefix: args.Prefix,
+		Global: args.Global,
+		Hint:   nil,
+		// this file may contain tokens
+		Perm: 0o600,
+	}, args.GlobalLogger)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(cfgDevices) == 0 && len(args.MergeWith) == 0 {
+		return nil, fmt.Errorf("no devices")
+	}
+
+	// are there new devices to be added too?
+	if len(args.MergeWith) > 0 {
+		// check if a device with the same DeviceID already exists
+		for did, mergeDev := range args.MergeWith {
+			if existingDev, ok := cfgDevices[did]; ok {
+				return nil, errors.Join(ErrDeviceAdd, ErrDeviceMerge{
+					DeviceID: did,
+					New:      mergeDev,
+					Existing: existingDev,
+				})
+			}
+		}
+
+		// merge the two
+		l.Debug("load devices: merging", "count", len(args.MergeWith))
+		maps.Copy(cfgDevices, args.MergeWith)
+
+		err := config.Flush(&cfgDevices, config.Args[config.NoHint]{
+			Prefix: args.Prefix,
+			Global: args.Global,
+			Hint:   nil,
+		}, args.GlobalLogger)
+		if err != nil {
+			return nil, ErrDeviceAdd
+		}
+	}
+	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
+
+	devs, err := parseDevices(cfgDevices)
+	if err != nil {
+		return nil, err
+	}
+	slog.Debug("devices pass 2: parse", "found", len(devs))
+
+	deferredDevices := make(parsedDevices)
+	deviceModels := make(intermediateDevices)
+
+	// load devices with specs already present
+	for did, dev := range devs {
+		var spec config.Spec
+		specArgs := config.Args[config.SpecHint]{
+			Global: args.Global,
+			Prefix: args.Prefix,
+			Hint: &config.SpecHint{
+				Model:    dev.Model,
+				Version:  dev.Version,
+				Download: nil,
+			},
+		}
+		err := config.Load(&spec, specArgs, args.GlobalLogger)
+		if err != nil && errors.Is(err, fs.ErrNotExist) {
+			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
+			deferredDevices[did] = dev
+		} else if err != nil {
+			return nil, err
+		} else {
+			deviceModels[did] = intermediateDevice{
+				Device: dev.Device,
+				Spec:   spec,
+			}
+		}
+	}
+	slog.Debug("devices pass 3: load those with specs",
+		"with", len(deviceModels),
+		"without", len(deferredDevices),
+	)
+
+	if len(deferredDevices) > 0 {
+		// populate metaspecs
+		var ms config.Metaspecs
+		metaspecsArgs := config.Args[config.NoHint]{
+			Prefix: args.Prefix,
+			Global: args.Global,
+			Hint:   nil,
+			Perm:   0o644,
+		}
+		err = config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
+		}
+
+		for did, dev := range deferredDevices {
+			spec, err := populateSpec(ctx, dev, ms.Instances, args)
+			if err != nil {
+				return nil, err
+			}
+			deviceModels[did] = intermediateDevice{
+				Device: dev.Device,
+				Spec:   spec,
+			}
+		}
+		slog.Debug("devices pass 3a: metaspecs")
+	}
+
+	// devices can take a while to respond (or not)
+	// init devices in parallel
+	var wg sync.WaitGroup
+	type deviceInit struct {
+		Device Device
+		Error  error
+	}
+	devices := make(chan deviceInit)
+	initCtx, cancelInit := context.WithCancel(ctx)
+	defer cancelInit()
+
+	for did, dev := range deviceModels {
+		devArgs := miotDeviceArgs{
+			DeviceID:     did,
+			Prefix:       args.Prefix,
+			Global:       args.Global,
+			Device:       dev,
+			GlobalLogger: args.GlobalLogger,
+		}
+		wg.Go(func() {
+			dev, err := newDevice(initCtx, devArgs)
+			devices <- deviceInit{
+				Device: dev,
+				Error:  err,
+			}
+		})
+	}
+	// devices is an unbuffered channel and
+	// will block the above goroutine if we don't
+	// drain it from below
+	go func() {
+		wg.Wait()
+		close(devices)
+	}()
+
+	if args.Strict {
+		l.Debug("strict device loading")
+	} else {
+		l.Debug("relaxed device loading")
+	}
+
+	res := make(MapDevices)
+	for devInit := range devices {
+		slog.Debug("initDevice")
+		err := devInit.Error
+		if err != nil {
+			if args.Strict {
+				return res, err
+			} else {
+				if errors.Is(err, ErrDevicePing) {
+					l.Warn("device offline", "reason", err)
+					// register device even though it could be offline
+					res[devInit.Device.DeviceID] = devInit.Device
+				} else {
+					// error is too severe, don't register device
+					l.Warn("skipping device", "reason", err)
+				}
+			}
+		} else {
+			res[devInit.Device.DeviceID] = devInit.Device
+		}
+	}
+
+	slog.Debug("loaded devices", "count", len(res))
+	if len(res) == 0 {
+		slog.Warn("no devices")
+	}
+	return res, nil
+}
+
+func parseDevices(devs config.Devices) (parsedDevices, error) {
+	res := make(parsedDevices)
+	for didStr, cfgDevice := range devs {
+		if !cfgDevice.Enabled {
+			slog.Debug("found disabled device", "did", didStr)
+			continue
+		}
+		var didRaw uint32
+		n, err := fmt.Sscanf(didStr, "%d", &didRaw)
+		if n != 1 {
+			return nil, fmt.Errorf("%w: failed to read did", ErrDeviceInit)
+		}
+		if err != nil {
+			return nil, err
+		}
+		did := wire.DeviceID(didRaw)
+
+		// validate
+		err = validateDeviceConfig(&cfgDevice)
+		if err != nil {
+			return nil, errors.Join(ErrDeviceInit, err)
+		}
+
+		res[did] = parsedDevice{cfgDevice}
+	}
+	return res, nil
+}
+
+// populateSpec prepares a spec for use by a device.
+func populateSpec(
+	ctx context.Context, dev parsedDevice,
+	metaspecs []config.Metaspec, args LoadArgs,
+) (config.Spec, error) {
+	var spec config.Spec
+	// find matching metaspec
+	for _, metaspec := range metaspecs {
+		if metaspec.Model == dev.Model && metaspec.Version == dev.Version {
+			popArgs := config.Args[config.SpecHint]{
+				Prefix: args.Prefix,
+				Global: args.Global,
+				Hint: &config.SpecHint{
+					Model:   metaspec.Model,
+					Version: metaspec.Version,
+					Download: &config.SpecDownload{
+						URN:     metaspec.SpecURN,
+						Context: ctx,
+					},
+				},
+				Perm: 0o644,
+			}
+			err := config.Populate(&spec, popArgs, args.GlobalLogger)
+			return spec, err
+		}
+	}
+	return spec, ErrNoMetaspec
+}
