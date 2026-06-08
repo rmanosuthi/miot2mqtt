@@ -110,12 +110,10 @@ func Canon(cmp Component) string {
 }
 
 // AttachComponent returns a component handle given a
-// Component and a [miot.Device], and will fail if
-// component cannot be attached even if it is
-// non-mandatory.
+// Component and a [miot.Device].
 //
-// Callers should skip over non-mandatory components
-// returning ErrNoMandatoryProp.
+// Errors encountered parsing non-mandatory properties
+// are always ignored.
 //
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
@@ -166,7 +164,12 @@ func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (Component
 			ComponentTopic: &componentTopic,
 		})
 		if err != nil {
-			return ComponentHandle{}, err
+			if decl.Mandatory {
+				return ComponentHandle{}, err
+			} else {
+				slog.Warn("attach property", "reason", err)
+				continue
+			}
 		}
 	}
 

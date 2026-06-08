@@ -72,15 +72,11 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	for _, cmp := range cmps {
 		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
 		if err != nil {
-			if errors.Is(err, discovery.ErrNoMandatoryProp) {
-				if !cmp.Mandatory {
-					l.Debug("no optional component", "name", cmp.Alias)
-					continue
-				} else {
-					return Device{}, fmt.Errorf("component attach: %w", err)
-				}
-			} else {
+			if cmp.Mandatory {
 				return Device{}, fmt.Errorf("component attach: %w", err)
+			} else {
+				l.Warn("attach component", "name", cmp.Alias, "reason", err)
+				continue
 			}
 		}
 		components = append(components, ch)
