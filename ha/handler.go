@@ -17,7 +17,7 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 
 	// prepare request
 	for topic, entry := range dev.StateTopics {
-		key := dev.md.PropKeys[entry.URN]
+		key := entry.PropKey
 		gp := prop.NewGetProp(key, entry.ValueMap)
 		req[key] = gp
 		topics[key] = topic
@@ -43,15 +43,15 @@ func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload [
 	var val json.RawMessage = json.RawMessage(payload)
 
 	topic := discovery.Topic(rawTopic)
-	cmdMap, ok := dev.CommandTopics[topic]
+	cmdEntry, ok := dev.CommandTopics[topic]
 	if !ok {
 		return DevMqPost{}, fmt.Errorf("command topic not found: %v", topic)
 	}
 
-	urn := cmdMap.URN
+	key := cmdEntry.PropKey
 	var stateTopic discovery.Topic
 	for topic, entry := range dev.StateTopics {
-		if entry.URN == urn {
+		if entry.PropKey == key {
 			stateTopic = topic
 		}
 	}
@@ -59,12 +59,7 @@ func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload [
 		return DevMqPost{}, fmt.Errorf("state topic not found: %v", topic)
 	}
 
-	key, ok := dev.md.PropKeys[urn]
-	if !ok {
-		return DevMqPost{}, fmt.Errorf("key not found: %v", urn)
-	}
-
-	req, err := prop.NewSetProp(key, val, cmdMap.ValueMap)
+	req, err := prop.NewSetProp(key, val, cmdEntry.ValueMap)
 	if err != nil {
 		return DevMqPost{}, fmt.Errorf("new set prop failed: %w", err)
 	}

@@ -5,6 +5,7 @@ import d "github.com/rmanosuthi/miot2mqtt/ha/discovery"
 var HorzAngle = d.Component{
 	Mandatory: false,
 	Alias:     "Horizontal Angle",
+	Service:   "fan",
 	Platform:  "number",
 	Properties: d.PropDecls{
 		"horizontal-angle": d.PropDecl{
