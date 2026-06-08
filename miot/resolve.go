@@ -29,7 +29,7 @@ var ErrDeviceDig = errors.New("failed to get device info")
 var ErrNoMetaspec = errors.New("model has no metaspec")
 
 // ResolvedDevice contains almost all information
-// necessary to operate on a device except for the spec's version.
+// necessary to initialize a device except for the spec's version.
 type ResolvedDevice struct {
 	Info Info
 	// Do not access this field directly.
@@ -37,6 +37,8 @@ type ResolvedDevice struct {
 	cfgDev config.Device
 }
 
+// WithVersion makes the [config.Device] valid by
+// populating its Version field with meta's.
 func (rd *ResolvedDevice) WithVersion(meta *config.Metaspec) config.Device {
 	newDev := rd.cfgDev
 
@@ -50,6 +52,8 @@ type miQueryInfo struct {
 	Params []string `json:"params"`
 }
 
+// miRespInfo is sent by a device as a result of
+// being queried through miQueryInfo.
 type miRespInfo struct {
 	ID      uint32   `json:"id"`
 	Result  RespInfo `json:"result"`
@@ -66,6 +70,7 @@ type Info struct {
 	Timestamp wire.Timestamp
 }
 
+// RespInfo contains all device information returned by miIO.info.
 type RespInfo struct {
 	Life                uint32    `json:"life"`
 	Model               string    `json:"model"`
@@ -84,6 +89,7 @@ type RespInfo struct {
 	PowerMode           uint32    `json:"power_mode"`
 }
 
+// InfoAP contains a device's wifi pairing information.
 type InfoAP struct {
 	SSID    string `json:"ssid"`
 	BSSID   string `json:"bssid"`
@@ -91,6 +97,7 @@ type InfoAP struct {
 	Primary int64  `json:"primary"`
 }
 
+// InfoNetIf contains a device's network interface information.
 type InfoNetIf struct {
 	LocalIp netip.Addr `json:"localip"`
 	Mask    netip.Addr `json:"mask"`

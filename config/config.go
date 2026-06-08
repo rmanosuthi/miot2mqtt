@@ -39,11 +39,13 @@ type nonVolatile[T any, H any] interface {
 	UnmarshalFunc([]byte) error
 }
 
+// Args is a type passed to IO-related functions in this module.
 type Args[H any] struct {
 	Prefix *os.Root
 	Global *Global
-	Perm   fs.FileMode
-	Hint   *H
+	// When file is created, perm comes into effect.
+	Perm fs.FileMode
+	Hint *H
 }
 
 // Flush marshals state and saves it to disk.

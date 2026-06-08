@@ -14,10 +14,17 @@ const MetaspecsPath = "vendor/miot_instances.json"
 
 var ErrNoExtNet = errors.New("external network access disabled")
 
+// Metaspecs is the raw representation of an "instances file" which
+// contains info about all device specs.
+//
+// This file is quite large (>6MB) and is not streamed;
+// low memory devices may struggle with its parsing.
 type Metaspecs struct {
 	Instances []Metaspec
 }
 
+// Default fetches the metaspecs file from miot-spec.org if
+// AllowExternalNetwork is enabled.
 func (ms *Metaspecs) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 	if !gc.General.AllowExternalNetwork {
 		return ErrNoExtNet
