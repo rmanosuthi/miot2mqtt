@@ -1,12 +1,16 @@
 package miot
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 )
+
+var ErrDeviceResolve = errors.New("resolve device")
+var ErrDeviceDig = errors.New("get device info")
 
 type LoadDevicesStage int
 
@@ -20,6 +24,11 @@ const (
 	LoadDevicesStageInit
 )
 
+// ErrLoadDevices is returned by [LoadDevices] upon an error.
+// Loading is conceptually split into stages of type
+// [LoadDevicesStage].
+// This is stored in the error for better clarity in the
+// error message exactly when an issue was encountered.
 type ErrLoadDevices struct {
 	Stage  LoadDevicesStage
 	Reason error
@@ -50,6 +59,10 @@ func (e *ErrLoadDevices) Unwrap() error {
 	return e.Reason
 }
 
+// ErrDeviceMerge is returned during [LoadDevices]
+// if an issue is encountered adding new devices
+// to the config file.
+// This may happen upon a DeviceID collision.
 type ErrDeviceMerge struct {
 	DeviceID string
 	New      config.Device
@@ -60,12 +73,20 @@ func (e *ErrDeviceMerge) Error() string {
 	return fmt.Sprintf("DeviceID %v already exists:\n%#v\nbut tried to add:\n%#v\n", e.DeviceID, e.Existing, e.New)
 }
 
+// ErrNoMetaspec is returned when a device model
+// does not have a matching metaspec.
 type ErrNoMetaspec string
 
 func (e ErrNoMetaspec) Error() string {
-	return fmt.Sprintf("no metaspec for model %v with selected parameters")
+	var sb strings.Builder
+	sb.WriteString("no metaspec for model ")
+	sb.WriteString(string(e))
+	sb.WriteString(" with selected parameters")
+	return sb.String()
 }
 
+// ErrDevicesToAdd is returned when [DevicesToAdd]
+// encounters a problem.
 type ErrDevicesToAdd struct {
 	Requests AddDeviceRequests
 	Reason   error
@@ -85,6 +106,7 @@ func (e *ErrDevicesToAdd) Unwrap() error {
 	return e.Reason
 }
 
+// ErrGetProps is returned by [Device.GetProperties].
 type ErrGetProps struct {
 	Request prop.GetPropsReq
 	Reason  error
@@ -106,6 +128,7 @@ func (e *ErrGetProps) Unwrap() error {
 	return e.Reason
 }
 
+// ErrSetProps is returned by [Device.SetProperty].
 type ErrSetProps struct {
 	Request prop.SetPropsReq
 	Reason  error
