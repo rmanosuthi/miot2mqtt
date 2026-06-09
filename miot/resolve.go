@@ -24,9 +24,6 @@ const (
 	StatusDebug    = "debug"
 )
 
-var ErrDeviceResolve = errors.New("resolve device")
-var ErrDeviceDig = errors.New("failed to get device info")
-
 // ResolvedDevice contains almost all information
 // necessary to initialize a device except for the spec's version.
 type ResolvedDevice struct {
