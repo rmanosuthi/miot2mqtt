@@ -55,7 +55,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"maps"
 	"math/rand/v2"
 	"net/netip"
@@ -73,7 +73,14 @@ import (
 //
 // See [Request Submission] for more info.
 func (dev *Device) GetProperties(ctx context.Context, req prop.GetPropsReq) error {
-	return dev.getProperties(ctx, req)
+	err := dev.getProperties(ctx, req)
+	if err != nil {
+		return &ErrGetProps{
+			Request: req,
+			Reason:  err,
+		}
+	}
+	return nil
 }
 
 // getProperties is a low-level helper to
@@ -82,7 +89,7 @@ func (dev *Device) GetProperties(ctx context.Context, req prop.GetPropsReq) erro
 func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) error {
 	if dev.timeStart == nil {
 		dev.l.Debug("device uninit")
-		return ErrDeviceUninit
+		return fmt.Errorf("device not initialized")
 	}
 
 	connId := rand.Uint32()
@@ -94,7 +101,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	var payload bytes.Buffer
 	jsonBytes, err := json.Marshal(query)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 	payload.Write(jsonBytes)
 	payload.WriteByte(0)
@@ -107,12 +114,12 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 	}
 	packetSend, err := dev.Token.Marshal(&msg)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 
 	conn, err := dev.dialer.DialUDP(ctx, "udp", netip.AddrPort{}, dev.Addr)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 	go func() {
 		if deadline, ok := ctx.Deadline(); ok {
@@ -126,18 +133,18 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 
 	_, err = conn.Write(packetSend)
 	if err != nil {
-		return errors.Join(ErrDeviceSend, err)
+		return err
 	}
 
 	var buf [wire.MaxPayloadSize]byte
 	n, err := conn.Read(buf[:])
 	if err != nil {
-		return errors.Join(ErrDeviceRecv, err)
+		return err
 	}
 
 	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
 	if err != nil {
-		return errors.Join(ErrDeviceRecv, err)
+		return err
 	}
 
 	if packetRecv.Timestamp < timestamp {
@@ -154,7 +161,7 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 		vm := prop.ValueMap(key)
 		resp, err := key.Unwrap(rprops, vm)
 		if err != nil {
-			return errors.Join(ErrDeviceRecv, err)
+			return err
 		}
 		prop.Response = resp
 	}
@@ -163,10 +170,19 @@ func (dev *Device) getProperties(ctx context.Context, req prop.GetPropsReq) erro
 
 // SetProperty sends a single query to the device to
 // set a single property.
-func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req *prop.SetProp) error {
-	return dev.setProperties(ctx, prop.SetPropsReq{
-		key: req,
-	})
+func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, sp *prop.SetProp) error {
+	req := prop.SetPropsReq{
+		key: sp,
+	}
+
+	err := dev.setProperties(ctx, req)
+	if err != nil {
+		return &ErrSetProps{
+			Request: req,
+			Reason:  err,
+		}
+	}
+	return nil
 }
 
 // setProperties is a low-level helper to
@@ -175,7 +191,7 @@ func (dev *Device) SetProperty(ctx context.Context, key prop.PropKey, req *prop.
 func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) error {
 	if dev.timeStart == nil {
 		dev.l.Debug("device uninit")
-		return ErrDeviceUninit
+		return fmt.Errorf("device not initialized")
 	}
 
 	connId := rand.Uint32()
@@ -187,7 +203,7 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	var payload bytes.Buffer
 	jsonBytes, err := json.Marshal(query)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 	payload.Write(jsonBytes)
 	payload.WriteByte(0)
@@ -200,12 +216,12 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 	}
 	packetSend, err := dev.Token.Marshal(&msg)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 
 	conn, err := dev.dialer.DialUDP(ctx, "udp", netip.AddrPort{}, dev.Addr)
 	if err != nil {
-		return errors.Join(ErrDeviceDial, err)
+		return err
 	}
 	go func() {
 		if deadline, ok := ctx.Deadline(); ok {
@@ -219,18 +235,18 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 
 	_, err = conn.Write(packetSend)
 	if err != nil {
-		return errors.Join(ErrDeviceSend, err)
+		return err
 	}
 
 	var buf [wire.MaxPayloadSize]byte
 	n, err := conn.Read(buf[:])
 	if err != nil {
-		return errors.Join(ErrDeviceRecv, err)
+		return err
 	}
 
 	packetRecv, err := dev.Token.Unmarshal(buf[0:n])
 	if err != nil {
-		return errors.Join(ErrDeviceRecv, err)
+		return err
 	}
 
 	if packetRecv.Timestamp < timestamp {
@@ -247,7 +263,7 @@ func (dev *Device) setProperties(ctx context.Context, req prop.SetPropsReq) erro
 		vm := setProp.ValueMap(key)
 		resp, err := key.Unwrap(rprops, vm)
 		if err != nil {
-			return errors.Join(ErrDeviceRecv, err)
+			return err
 		}
 		setProp.Response = resp
 	}

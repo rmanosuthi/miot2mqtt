@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -17,8 +16,6 @@ import (
 )
 
 type SpecID = uint16
-
-var ErrNoSpecHint = errors.New("tried to fetch spec with no hint")
 
 const SpecUrl = "https://miot-spec.org/miot-spec-v2/instance?type="
 const SpecPath = "vendor/spec/"
@@ -165,15 +162,19 @@ func (spec *Spec) Suffix(hint *SpecHint) (string, error) {
 }
 
 func (spec *Spec) MarshalFunc() ([]byte, error) {
-	return json.Marshal(spec)
+	res, err := json.Marshal(spec)
+	if err != nil {
+		return nil, fmt.Errorf("marshal spec: %w", err)
+	}
+	return res, nil
 }
 
 func (spec *Spec) UnmarshalFunc(src []byte) error {
 	err := json.Unmarshal(src, spec)
 	if err != nil {
-		slog.Debug("failed to unmarshal spec, dumping", "dump", spec)
+		return fmt.Errorf("unmarshal spec: %w", err)
 	}
-	return err
+	return nil
 }
 
 func downloadSpec(ctx context.Context, urn URN, spec *Spec) error {

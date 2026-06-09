@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +10,6 @@ import (
 
 const MetaspecsUrl = "https://miot-spec.org/miot-spec-v2/instances?status=all"
 const MetaspecsPath = "vendor/miot_instances.json"
-
-var ErrNoExtNet = errors.New("external network access disabled")
 
 // Metaspecs is the raw representation of an "instances file" which
 // contains info about all device specs.
@@ -31,7 +28,7 @@ func (ms *Metaspecs) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 	}
 	resp, err := http.Get(MetaspecsUrl)
 	if err != nil {
-		return fmt.Errorf("failed to get instances: %w", err)
+		return fmt.Errorf("fetch instances: %w", err)
 	}
 
 	defer resp.Body.Close()
@@ -43,7 +40,7 @@ func (ms *Metaspecs) Default(pfx *os.Root, gc *Global, hint *NoHint) error {
 
 	err = json.Unmarshal(buf.Bytes(), ms)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal instances: %w", err)
+		return fmt.Errorf("fetch instances: %w", err)
 	}
 
 	return nil

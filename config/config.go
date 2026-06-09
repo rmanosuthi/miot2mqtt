@@ -10,10 +10,6 @@ import (
 	"path/filepath"
 )
 
-var ErrPopulate = errors.New("failed to populate config")
-var ErrLoad = errors.New("failed to load config")
-var ErrFlush = errors.New("failed to flush config")
-
 type NoHint struct{}
 
 // nonVolatile is a generic interface to be implemented by

@@ -2,6 +2,7 @@ package prop
 
 import (
 	"encoding/json"
+	"fmt"
 	"iter"
 
 	"github.com/rmanosuthi/miot2mqtt/wire"
@@ -12,6 +13,11 @@ type SetProp struct {
 	Error    error
 	value    wire.MiValue
 	valueMap wire.ValueMap
+}
+
+func (p *SetProp) String(k *PropKey) string {
+	tyName, _ := k.ty.MarshalText()
+	return fmt.Sprintf("{DID %v SIID %v PIID %v type %v val %v}", k.DID, k.SIID, k.PIID, string(tyName), p.value.Value)
 }
 
 func (sp *SetProp) ValueMap(_ PropKey) wire.ValueMap {

@@ -1,11 +1,20 @@
 package prop
 
-import "github.com/rmanosuthi/miot2mqtt/wire"
+import (
+	"fmt"
+
+	"github.com/rmanosuthi/miot2mqtt/wire"
+)
 
 type GetProp struct {
 	Response ResponseEntry
 	Error    error
 	valueMap wire.ValueMap
+}
+
+func (p *GetProp) String(k *PropKey) string {
+	tyName, _ := k.ty.MarshalText()
+	return fmt.Sprintf("{DID %v SIID %v PIID %v type %v}", k.DID, k.SIID, k.PIID, string(tyName))
 }
 
 func (gp *GetProp) ValueMap(_ PropKey) wire.ValueMap {

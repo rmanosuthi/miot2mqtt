@@ -9,7 +9,7 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
-var ErrParseResponse = errors.New("failed to parse miot response")
+var ErrParseResponse = errors.New("parse miot response")
 
 type rawQuery struct {
 	ID     uint32       `json:"id"`
