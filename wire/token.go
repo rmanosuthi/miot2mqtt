@@ -197,9 +197,9 @@ func (tk *Token) unmarshalNoPayload(packet []byte) (*MiotPacket, error) {
 // Unmarshal transforms a wire-format packet into MiotPacket,
 // decrypting it using Token.
 func (tk *Token) Unmarshal(packet []byte) (*MiotPacket, error) {
-	lenP := len(packet)
-	if lenP < LenHeader {
-		return nil, ErrPacketTooShort
+	_, err := atLeastHeader(packet)
+	if err != nil {
+		return nil, err
 	}
 
 	// [0:2] magic
@@ -211,7 +211,7 @@ func (tk *Token) Unmarshal(packet []byte) (*MiotPacket, error) {
 	// [2:4] len
 	var pLen uint16
 	pLenSlice := packet[2:4]
-	_, err := binary.Decode(pLenSlice, binary.BigEndian, &pLen)
+	_, err = binary.Decode(pLenSlice, binary.BigEndian, &pLen)
 	if err != nil {
 		return nil, err
 	}

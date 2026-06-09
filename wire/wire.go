@@ -91,24 +91,24 @@ type Pong struct {
 
 // GetPong tries to parse a raw packet as Pong, the result of Ping.
 // It contains a device ID and a timestamp.
-func GetPong(rawPacket []byte) (*Pong, error) {
+func GetPong(rawPacket []byte) (Pong, error) {
 	slog.Debug("getting pong")
-	if err := atLeastHeader(rawPacket); err != nil {
-		return nil, err
+	if _, err := atLeastHeader(rawPacket); err != nil {
+		return Pong{}, fmt.Errorf("", err)
 	}
 
 	did, err := decode4(rawPacket[8:12])
 	if err != nil {
-		return nil, err
+		return Pong{}, err
 	}
 	timestamp, err := decode4(rawPacket[12:16])
 	if err != nil {
-		return nil, err
+		return Pong{}, err
 	}
-	return new(Pong{
+	return Pong{
 		DeviceID:  DeviceID(did),
 		Timestamp: Timestamp(timestamp),
-	}), nil
+	}, nil
 }
 
 // decode4 decodes a slice containing a big-endian uint32 into
@@ -123,19 +123,19 @@ func decode4(slice []byte) (uint32, error) {
 }
 
 // atLeastHeader asserts a packet is at least [LenHeader] long.
-func atLeastHeader(rawPacket []byte) error {
+func atLeastHeader(rawPacket []byte) (int, error) {
 	lenRaw := len(rawPacket)
 	if lenRaw < LenHeader {
-		return fmt.Errorf("%w: %v", ErrPacketTooShort, lenRaw)
+		return lenRaw, fmt.Errorf("packet too short: expected at least %v, found %v", LenHeader, lenRaw)
 	}
-	return nil
+	return lenRaw, nil
 }
 
 // GetDeviceID tries to get the device ID from a raw packet.
 //
 // It assumes the packet is at least LenHeader long.
 func GetDeviceID(rawPacket []byte) (DeviceID, error) {
-	if err := atLeastHeader(rawPacket); err != nil {
+	if _, err := atLeastHeader(rawPacket); err != nil {
 		return 0, err
 	}
 
@@ -149,7 +149,7 @@ func GetDeviceID(rawPacket []byte) (DeviceID, error) {
 // GetTimestamp tries to get the timestamp from a raw packet.
 // It assumes the packet is at least [LenHeader] long.
 func GetTimestamp(rawPacket []byte) (Timestamp, error) {
-	if err := atLeastHeader(rawPacket); err != nil {
+	if _, err := atLeastHeader(rawPacket); err != nil {
 		return 0, err
 	}
 

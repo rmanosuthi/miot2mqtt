@@ -2,7 +2,6 @@ package miot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,15 +14,6 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
-
-var ErrDeviceInit = errors.New("failed to initialize device handle")
-var ErrDeviceDial = errors.New("failed to dial device")
-var ErrDeviceSend = errors.New("failed to send to device")
-var ErrDeviceRecv = errors.New("failed to receive from device")
-var ErrDevicePing = errors.New("failed to ping device")
-var ErrDeviceUninit = errors.New("device not initialized")
-var ErrDeviceAdd = errors.New("failed to add device")
-var ErrDeviceChanged = errors.New("device state changed, retry")
 
 // A MapDevices is a map from [wire.DeviceID] to [Device]
 // designed to be used by code that needs to:
@@ -154,16 +144,6 @@ type AddDeviceArgs struct {
 	Reqs         AddDeviceRequests
 }
 
-type ErrDeviceMerge struct {
-	DeviceID string
-	New      config.Device
-	Existing config.Device
-}
-
-func (e ErrDeviceMerge) Error() string {
-	return fmt.Sprintf("DeviceID %v already exists:\n%#v\nbut tried to add:\n%#v\n", e.DeviceID, e.Existing, e.New)
-}
-
 // miotDeviceArgs are arguments for [newDevice].
 type miotDeviceArgs struct {
 	DeviceID     wire.DeviceID
@@ -174,7 +154,6 @@ type miotDeviceArgs struct {
 }
 
 // newDevice initializes a MiotDevice.
-// This function will return both a MiotDevice and ErrDevicePing if the device couldn't be reached.
 func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	var res Device
 
@@ -186,7 +165,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	token := wire.Token{}
 	err := token.UnmarshalText([]byte(dev.Token))
 	if err != nil {
-		return res, fmt.Errorf("failed to parse token: %w", err)
+		return res, fmt.Errorf("parse token: %w", err)
 	}
 
 	services := parseServices(spec)
@@ -210,7 +189,6 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 	pong, err := ping(pingCtx, &dialer, addrPort, args.GlobalLogger)
 	if err != nil {
 		l.Warn("device unreachable", "reason", err)
-		err = errors.Join(ErrDevicePing, err)
 	} else {
 		l.Info("initialized device")
 		timeStart = new(pong.Timestamp.EpochTime(time.Now()))
@@ -232,7 +210,7 @@ func newDevice(ctx context.Context, args miotDeviceArgs) (Device, error) {
 		timeStart:  timeStart,
 		l:          l,
 	}
-	return res, err
+	return res, nil
 }
 
 // validateDeviceConfig checks that a [config.Device] is valid.
@@ -252,5 +230,5 @@ func (dev *Device) UpdateTimestamp(curr wire.Timestamp) error {
 	epoch := curr.EpochTime(time.Now())
 	dev.timeStart = &epoch
 	dev.l.Debug("updated timestamp", "epoch", epoch)
-	return ErrDeviceChanged
+	return fmt.Errorf("device state changed")
 }

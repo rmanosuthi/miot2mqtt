@@ -3,15 +3,12 @@ package config
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"unique"
 )
-
-var ErrUnmarshalUrn = errors.New("failed to unmarshal urn")
 
 // URN is a non-globally-unique resource identifier
 // used extensively by miot.

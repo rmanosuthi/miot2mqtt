@@ -26,7 +26,6 @@ const (
 
 var ErrDeviceResolve = errors.New("resolve device")
 var ErrDeviceDig = errors.New("failed to get device info")
-var ErrNoMetaspec = errors.New("model has no metaspec")
 
 // ResolvedDevice contains almost all information
 // necessary to initialize a device except for the spec's version.
@@ -244,17 +243,17 @@ func ResolveDefaultMetaspec(
 	metas := slices.Collect(filter)
 	slices.SortFunc(metas, cmp)
 	if len(metas) == 0 {
-		return config.Metaspec{}, fmt.Errorf("%w: %v", ErrNoMetaspec, modelName)
+		return config.Metaspec{}, ErrNoMetaspec(modelName)
 	} else {
 		return metas[len(metas)-1], nil
 	}
 }
 
-func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.Logger) (*wire.Pong, error) {
+func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.Logger) (wire.Pong, error) {
 	l := logger.With("addr", &addr)
 	conn, err := d.DialUDP(ctx, "udp", netip.AddrPort{}, addr)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceDial, err)
+		return wire.Pong{}, err
 	}
 	l.Debug("dial")
 	go func() {
@@ -269,14 +268,14 @@ func ping(ctx context.Context, d *net.Dialer, addr netip.AddrPort, logger *slog.
 
 	_, err = conn.Write(wire.PingPacket)
 	if err != nil {
-		return nil, errors.Join(ErrDeviceSend, err)
+		return wire.Pong{}, err
 	}
 	l.Debug("write")
 
 	var buf [wire.MaxPayloadSize]byte
 	n, _, err := conn.ReadFrom(buf[:])
 	if err != nil {
-		return nil, errors.Join(ErrDeviceRecv, err)
+		return wire.Pong{}, err
 	}
 	l.Debug("read")
 

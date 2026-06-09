@@ -70,23 +70,25 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, 
 	}
 	err := config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
+		return nil, &ErrDevicesToAdd{
+			Requests: args.Reqs,
+			Reason:   err,
+		}
 	}
 
 	for _, addDevReq := range args.Reqs {
 		resolvedDev, err := ResolveDevice(ctx, addDevReq, args.GlobalLogger)
 		if err != nil {
-			return nil, err
+			return nil, &ErrDevicesToAdd{
+				Requests: args.Reqs,
+				Reason:   err,
+			}
 		}
 
 		// workaround: backconvert did to string
 		// for correct key type
 		didStr := strconv.Itoa(int(resolvedDev.Info.DeviceID))
 
-		// Match whether device has already been defined by its DeviceID
-		// rather than IP or token.
-		// Unfortunately this can't be done earlier and we
-		// must have already contacted the device to do it.
 		metaspecs := slices.Values(ms.Instances)
 		meta, err := ResolveDefaultMetaspec(resolvedDev.Info.Model, metaspecs,
 			// NOTE potential optimization:
@@ -96,7 +98,10 @@ func DevicesToAdd(ctx context.Context, args AddDeviceArgs) (config.DevicesMeta, 
 			},
 		)
 		if err != nil {
-			return nil, err
+			return nil, &ErrDevicesToAdd{
+				Requests: args.Reqs,
+				Reason:   err,
+			}
 		}
 
 		cfgDev := resolvedDev.WithVersion(&meta)
@@ -144,11 +149,17 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		Perm: 0o600,
 	}, args.GlobalLogger)
 	if err != nil {
-		return nil, err
+		return nil, &ErrLoadDevices{
+			Stage:  LoadDevicesStagePopulate,
+			Reason: err,
+		}
 	}
 
 	if len(cfgDevices) == 0 && len(args.MergeWith) == 0 {
-		return nil, fmt.Errorf("no devices")
+		return nil, &ErrLoadDevices{
+			Stage:  LoadDevicesStageCount,
+			Reason: fmt.Errorf("no devices"),
+		}
 	}
 
 	// are there new devices to be added too?
@@ -156,11 +167,15 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		// check if a device with the same DeviceID already exists
 		for did, mergeDev := range args.MergeWith {
 			if existingDev, ok := cfgDevices[did]; ok {
-				return nil, errors.Join(ErrDeviceAdd, ErrDeviceMerge{
+				err := &ErrDeviceMerge{
 					DeviceID: did,
 					New:      mergeDev,
 					Existing: existingDev,
-				})
+				}
+				return nil, &ErrLoadDevices{
+					Stage:  LoadDevicesStageMerge,
+					Reason: err,
+				}
 			}
 		}
 
@@ -174,16 +189,22 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			Hint:   nil,
 		}, args.GlobalLogger)
 		if err != nil {
-			return nil, ErrDeviceAdd
+			return nil, &ErrLoadDevices{
+				Stage:  LoadDevicesStageMerge,
+				Reason: err,
+			}
 		}
 	}
-	slog.Debug("devices pass 1: populate", "found", len(cfgDevices))
+	l.Debug("devices pass 1: populate", "found", len(cfgDevices))
 
-	devs, err := parseDevices(cfgDevices)
+	devs, err := parseDevices(l, cfgDevices)
 	if err != nil {
-		return nil, err
+		return nil, &ErrLoadDevices{
+			Stage:  LoadDevicesStageParse,
+			Reason: err,
+		}
 	}
-	slog.Debug("devices pass 2: parse", "found", len(devs))
+	l.Debug("devices pass 2: parse", "found", len(devs))
 
 	deferredDevices := make(parsedDevices)
 	deviceModels := make(intermediateDevices)
@@ -202,10 +223,13 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		}
 		err := config.Load(&spec, specArgs, args.GlobalLogger)
 		if err != nil && errors.Is(err, fs.ErrNotExist) {
-			slog.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
+			l.Warn("device has no spec, will populate from metaspec (slow)", "did", did)
 			deferredDevices[did] = dev
 		} else if err != nil {
-			return nil, err
+			return nil, &ErrLoadDevices{
+				Stage:  LoadDevicesStageSpecsExist,
+				Reason: err,
+			}
 		} else {
 			deviceModels[did] = intermediateDevice{
 				Device: dev.Device,
@@ -213,7 +237,7 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 			}
 		}
 	}
-	slog.Debug("devices pass 3: load those with specs",
+	l.Debug("devices pass 3: load those with specs",
 		"with", len(deviceModels),
 		"without", len(deferredDevices),
 	)
@@ -229,20 +253,26 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 		}
 		err = config.Populate(&ms, metaspecsArgs, args.GlobalLogger)
 		if err != nil {
-			return nil, fmt.Errorf("failed to populate metaspecs: %w", err)
+			return nil, &ErrLoadDevices{
+				Stage:  LoadDevicesStageSpecsDeferred,
+				Reason: err,
+			}
 		}
 
 		for did, dev := range deferredDevices {
 			spec, err := populateSpec(ctx, dev, ms.Instances, args)
 			if err != nil {
-				return nil, err
+				return nil, &ErrLoadDevices{
+					Stage:  LoadDevicesStageSpecsDeferred,
+					Reason: err,
+				}
 			}
 			deviceModels[did] = intermediateDevice{
 				Device: dev.Device,
 				Spec:   spec,
 			}
 		}
-		slog.Debug("devices pass 3a: metaspecs")
+		l.Debug("devices pass 3a: metaspecs")
 	}
 
 	// devices can take a while to respond (or not)
@@ -288,54 +318,50 @@ func LoadDevices(ctx context.Context, args LoadArgs) (MapDevices, error) {
 
 	res := make(MapDevices)
 	for devInit := range devices {
-		slog.Debug("initDevice")
+		l.Debug("initDevice")
 		err := devInit.Error
 		if err != nil {
 			if args.Strict {
-				return res, err
-			} else {
-				if errors.Is(err, ErrDevicePing) {
-					l.Warn("device offline", "reason", err)
-					// register device even though it could be offline
-					res[devInit.Device.DeviceID] = devInit.Device
-				} else {
-					// error is too severe, don't register device
-					l.Warn("skipping device", "reason", err)
+				return res, &ErrLoadDevices{
+					Stage:  LoadDevicesStageInit,
+					Reason: err,
 				}
+			} else {
+				l.Warn("skipping device", "reason", err)
 			}
 		} else {
 			res[devInit.Device.DeviceID] = devInit.Device
 		}
 	}
 
-	slog.Debug("loaded devices", "count", len(res))
+	l.Debug("loaded devices", "count", len(res))
 	if len(res) == 0 {
-		slog.Warn("no devices")
+		l.Warn("no devices")
 	}
 	return res, nil
 }
 
-func parseDevices(devs config.Devices) (parsedDevices, error) {
+func parseDevices(l *slog.Logger, devs config.Devices) (parsedDevices, error) {
 	res := make(parsedDevices)
 	for didStr, cfgDevice := range devs {
 		if !cfgDevice.Enabled {
-			slog.Debug("found disabled device", "did", didStr)
+			l.Debug("found disabled device", "did", didStr)
 			continue
 		}
 		var didRaw uint32
 		n, err := fmt.Sscanf(didStr, "%d", &didRaw)
 		if n != 1 {
-			return nil, fmt.Errorf("%w: failed to read did", ErrDeviceInit)
+			return nil, fmt.Errorf("read did: unexpected sscanf len %v", n)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read did: %w", err)
 		}
 		did := wire.DeviceID(didRaw)
 
 		// validate
 		err = validateDeviceConfig(&cfgDevice)
 		if err != nil {
-			return nil, errors.Join(ErrDeviceInit, err)
+			return nil, fmt.Errorf("validate device config: %w", err)
 		}
 
 		res[did] = parsedDevice{cfgDevice}
@@ -369,5 +395,5 @@ func populateSpec(
 			return spec, err
 		}
 	}
-	return spec, ErrNoMetaspec
+	return spec, ErrNoMetaspec(dev.Model)
 }
