@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 )
 
 // Report queries all registered properties of a Device.
 func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
-	props := make(map[discovery.Topic]json.RawMessage)
+	props := make(map[Topic]json.RawMessage)
 	req := make(prop.GetPropsReq)
-	topics := make(map[prop.PropKey]discovery.Topic)
+	topics := make(map[prop.PropKey]Topic)
 
 	// prepare request
 	for topic, entry := range dev.StateTopics {
@@ -42,14 +41,14 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload []byte) (DevMqPost, error) {
 	var val json.RawMessage = json.RawMessage(payload)
 
-	topic := discovery.Topic(rawTopic)
+	topic := Topic(rawTopic)
 	cmdEntry, ok := dev.CommandTopics[topic]
 	if !ok {
 		return DevMqPost{}, fmt.Errorf("command topic not found: %v", topic)
 	}
 
 	key := cmdEntry.PropKey
-	var stateTopic discovery.Topic
+	var stateTopic Topic
 	for topic, entry := range dev.StateTopics {
 		if entry.PropKey == key {
 			stateTopic = topic
@@ -71,7 +70,7 @@ func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload [
 
 	// echo the command payload back since
 	// device may not respond with the value
-	statePayload := map[discovery.Topic]json.RawMessage{
+	statePayload := map[Topic]json.RawMessage{
 		stateTopic: payload,
 	}
 
