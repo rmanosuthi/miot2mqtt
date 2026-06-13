@@ -12,7 +12,6 @@ import (
 
 	"github.com/rmanosuthi/miot2mqtt/config"
 	"github.com/rmanosuthi/miot2mqtt/ha"
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 )
 
@@ -104,7 +103,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rsv, _ := discovery.NewResolver()
+	rsv, _ := ha.NewResolver()
 
 	var wg sync.WaitGroup
 	chDpMqtt := make(chan any)

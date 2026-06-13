@@ -10,8 +10,7 @@
 // and dynamically subscribes to each device's commandTopics by
 // querying [DevicePool] through [MqDpConnected].
 //
-// A device's command topics are generated through [discovery.AttachComponent];
-// see the *Topic structs in [discovery].
+// A device's command topics are generated through [AttachComponent].
 //
 // Subscriptions and routes are set up when the connection is established
 // through OnConnectionUp.

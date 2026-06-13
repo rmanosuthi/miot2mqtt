@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
@@ -25,7 +24,7 @@ type DevicePool struct {
 type DevicePoolArgs struct {
 	FromMQTT     <-chan any
 	ToMQTT       chan<- any
-	Resolver     *discovery.Resolver
+	Resolver     *Resolver
 	GlobalLogger *slog.Logger
 }
 

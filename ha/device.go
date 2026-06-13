@@ -18,7 +18,6 @@ import (
 	"maps"
 	"time"
 
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 
 	paho "github.com/eclipse/paho.golang/paho"
@@ -29,12 +28,12 @@ var ErrDevEv = errors.New("incoming event")
 // A Device in this package is its Home Assistant-facing representation.
 type Device struct {
 	ticker        *time.Ticker
-	components    []discovery.ComponentHandle
+	components    []ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
-	rsv           *discovery.Resolver
-	CommandTopics discovery.TopicMap
-	StateTopics   discovery.TopicMap
+	rsv           *Resolver
+	CommandTopics TopicMap
+	StateTopics   TopicMap
 	EnumTopics    DpMqConnInfo
 	// Recognized: DpDevReqDiscovery
 	mbox chan any
@@ -42,7 +41,7 @@ type Device struct {
 }
 
 type DeviceArgs struct {
-	Resolver     *discovery.Resolver
+	Resolver     *Resolver
 	MiotDevice   miot.Device
 	GlobalLogger *slog.Logger
 	Pool         chan<- any
@@ -65,12 +64,12 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	}
 	deviceTopic := args.Resolver.GetDeviceTopic(did)
 
-	var components []discovery.ComponentHandle
-	commandTopics := make(discovery.TopicMap)
-	stateTopics := make(discovery.TopicMap)
+	var components []ComponentHandle
+	commandTopics := make(TopicMap)
+	stateTopics := make(TopicMap)
 
 	for _, cmp := range cmps {
-		ch, err := discovery.AttachComponent(cmp, md, deviceTopic)
+		ch, err := AttachComponent(cmp, md, deviceTopic)
 		if err != nil {
 			if cmp.Mandatory {
 				return Device{}, fmt.Errorf("component attach: %w", err)

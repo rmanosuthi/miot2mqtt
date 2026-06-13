@@ -27,7 +27,6 @@ import (
 
 	"github.com/eclipse/paho.golang/autopaho"
 	paho "github.com/eclipse/paho.golang/paho"
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -67,7 +66,7 @@ type DpMqConnInfo struct {
 	// Route glob topic.
 	RouteGlob string
 	// Subscription topics.
-	SubTopics discovery.TopicMap
+	SubTopics TopicMap
 	// Callback to process the message.
 	ForwardTo func(*paho.Publish)
 }
@@ -80,4 +79,4 @@ type DevMqPost struct {
 	Payload PostMultiple
 }
 
-type PostMultiple = map[discovery.Topic]json.RawMessage
+type PostMultiple = map[Topic]json.RawMessage

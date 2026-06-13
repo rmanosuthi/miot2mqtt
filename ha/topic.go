@@ -1,4 +1,4 @@
-package discovery
+package ha
 
 // DeviceTopic is a typed absolute path string
 // for a device's MQTT topic.

@@ -27,7 +27,7 @@
 // and HA listens for state changes on:
 //
 //	~/{Property}/state
-package discovery
+package ha
 
 import (
 	"github.com/rmanosuthi/miot2mqtt/miot"
@@ -39,16 +39,16 @@ type ComponentDiscovery map[string]any
 // Discovery is the message used for device registration
 // created by [Resolver.NewDiscovery].
 type Discovery struct {
-	Device Device `json:"device"`
-	Origin Origin `json:"origin"`
+	Device DeviceInfo `json:"device"`
+	Origin Origin     `json:"origin"`
 	// Components must live in a JSON map.
 	// The key does not seem to have any meaning,
 	// so [ComponentHandle.Canon] is used in place.
 	Components map[string]ComponentDiscovery `json:"components"`
 }
 
-// Device lists the manufacturer info of a device.
-type Device struct {
+// DeviceInfo lists the manufacturer info of a device.
+type DeviceInfo struct {
 	Identifiers     []string `json:"identifiers"`
 	Alias           string   `json:"name"`
 	Manufacturer    string   `json:"manufacturer"`
@@ -58,8 +58,8 @@ type Device struct {
 	Serial          string   `json:"serial_number"`
 }
 
-func FromInfo(alias string, info *miot.Info) Device {
-	return Device{
+func FromInfo(alias string, info *miot.Info) DeviceInfo {
+	return DeviceInfo{
 		Identifiers:     []string{info.DeviceID.String()},
 		Alias:           alias,
 		Manufacturer:    "Xiaomi",

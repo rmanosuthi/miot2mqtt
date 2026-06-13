@@ -3,7 +3,7 @@
 // A device type has the general structure of:
 //
 //	Hint	string
-//	Components	[]discovery.Component
+//	Components	[]Component
 //
 // First, obtain its spec file:
 //
@@ -36,9 +36,6 @@ package ha
 import (
 	"fmt"
 
-	"github.com/rmanosuthi/miot2mqtt/ha/airp"
-	"github.com/rmanosuthi/miot2mqtt/ha/discovery"
-	"github.com/rmanosuthi/miot2mqtt/ha/fan"
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
@@ -56,26 +53,20 @@ func (e ErrDevUnsupported) Error() string {
 	return fmt.Sprintf("unsupported device: did %v model %v class %v", e.did, e.model, e.cls)
 }
 
-// MatchDevice gets a [discovery.Component] group to attach to a device by
-// calling [discovery.Hint] to get the device type, then
+// MatchDevice gets a [Component] group to attach to a device by
+// calling [Hint] to get the device type, then
 // enumerating its components.
 //
 // Modify this function to add a new device type.
 //
 // All possible components a device may possess are returned.
-func MatchDevice(md *miot.Device) ([]discovery.Component, error) {
+func MatchDevice(md *miot.Device) ([]Component, error) {
 	hint := md.Class
 	switch hint {
 	case "fan":
-		return []discovery.Component{
-			fan.Fan,
-			fan.HorzAngle,
-		}, nil
+		return Fan, nil
 	case "air-purifier":
-		return []discovery.Component{
-			airp.Fan,
-			airp.RelHumid,
-		}, nil
+		return AirPurifier, nil
 	default:
 		return nil, ErrDevUnsupported{
 			did:   md.DeviceID,
