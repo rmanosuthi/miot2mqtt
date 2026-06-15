@@ -153,6 +153,17 @@ func (dev Device) Subscribe(ctx context.Context) error {
 		Payload: cmpsOnline,
 	}
 	var run bool = true
+
+	// report once on start
+	ctxReport, cancelReport := context.WithTimeout(ctx, time.Second)
+	defer cancelReport()
+	report, err := dev.Report(ctxReport)
+	if err != nil {
+		l.Error("failed to report", "reason", err)
+	} else {
+		dev.Pool <- report
+	}
+
 	for run {
 		select {
 		case <-dev.ticker.C:
