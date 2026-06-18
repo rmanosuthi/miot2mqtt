@@ -40,7 +40,7 @@ func (dt DeviceTopic) Glob() string {
 	return string(dt) + "/#"
 }
 
-func (dt DeviceTopic) Component(cmp Component) ComponentTopic {
+func (dt DeviceTopic) Component(cmp ComponentTemplate) ComponentTopic {
 	return ComponentTopic(string(dt) + "/" + cmp.Platform + "/" + cmp.Canon())
 }
 

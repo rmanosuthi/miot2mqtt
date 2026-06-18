@@ -12,13 +12,17 @@
 //
 // # Components
 //
-// A component is defined as [Component].
-//
 // Each component lives in:
 //
-//	miot2mqtt/{DeviceID}/{Component}
+//	miot2mqtt/{DeviceID}/{Platform}/{Canon}
 //
-// and is defined as "~".
+// given
+// [ComponentTemplate.Platform]
+// and
+// [ComponentTemplate.Canon]
+// .
+//
+// This path is defined as "~".
 //
 // Commands are submitted to:
 //
@@ -34,7 +38,7 @@ import (
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
-// ComponentDiscovery is the marshaled form of [Component],
+// ComponentDiscovery is the marshaled form of [ComponentTemplate],
 // which is a JSON map in a discovery message's map of components.
 // Example, given a discovery message:
 //
