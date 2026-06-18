@@ -24,7 +24,6 @@ type DevicePool struct {
 type DevicePoolArgs struct {
 	FromMQTT     <-chan any
 	ToMQTT       chan<- any
-	Resolver     *Resolver
 	GlobalLogger *slog.Logger
 }
 
@@ -34,7 +33,6 @@ func NewDevicePool(ctx context.Context, mDevs miot.MapDevices, args DevicePoolAr
 
 	for did, md := range mDevs {
 		dev, err := NewDevice(ctx, DeviceArgs{
-			Resolver:     args.Resolver,
 			MiotDevice:   md,
 			GlobalLogger: args.GlobalLogger,
 			Pool:         chDevs,
