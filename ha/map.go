@@ -16,12 +16,6 @@ type TopicEntry struct {
 	ValueMap wire.ValueMap
 }
 
-type Topic string
-
-func (t *Topic) MQTT() string {
-	return string(*t)
-}
-
 // TopicMap is a map from an MQTT topic to a URN and a ValueMap.
 type TopicMap map[Topic]TopicEntry
 

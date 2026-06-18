@@ -114,12 +114,7 @@ func (dp *DevicePool) Subscribe(ctx context.Context) error {
 			switch ev := ev.(type) {
 			case MqDpConnected:
 				l.Debug("from mq: connected")
-				reply := ev.ReplyTo
-				// enumerate and send
-				for _, dev := range dp.devs {
-					reply <- dev.EnumTopics
-				}
-				close(reply)
+				dp.Connected(ev)
 			case MqDpReqDiscovery:
 				l.Debug("from mq: discovery")
 				for _, dev := range dp.devs {
@@ -149,6 +144,15 @@ type dpShutdownArgs struct {
 	CancelDevs context.CancelFunc
 	WgDevs     *sync.WaitGroup
 	MQSend     chan<- any
+}
+
+func (dp *DevicePool) Connected(msg MqDpConnected) {
+	reply := msg.ReplyTo
+	// enumerate and send
+	for _, dev := range dp.devs {
+		reply <- dev.EnumTopics
+	}
+	close(reply)
 }
 
 func (dp *DevicePool) shutdown(ctx context.Context, args dpShutdownArgs) error {

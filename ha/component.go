@@ -49,14 +49,8 @@ type ComponentHandle struct {
 //   - Platform Number: vertical swing angle
 //   - Platform Switch: vertical oscillation
 //
-// [ComponentDiscovery] is related to:
-//
-//   - Discovery message
-//
-// [ComponentHandle] is related to:
-//
-//   - Message routing TODO document
-//   - User interaction
+// [ComponentDiscovery] forms the discovery message.
+// User interaction is done through [ComponentHandle].
 //
 // A component is simply marked as online whenever Device starts and
 // offline when the program exits.

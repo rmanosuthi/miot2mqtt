@@ -1,12 +1,3 @@
-// # Device Concurrency
-//
-// Since [miot.Device] is not threadsafe,
-// [Device] wraps that struct and
-// only accepts external requests through its Mailbox.
-//
-// Note: Messages to DevicePool get sent to a common channel
-// [Device.Pool]
-// shared between all devices.
 package ha
 
 import (
@@ -28,6 +19,29 @@ import (
 var ErrDevEv = errors.New("incoming event")
 
 // A Device in this package is its Home Assistant-facing representation.
+//
+// The non-threadsafe [miot.Device] is wrapped
+// and external communication is done through
+// [Device.Post] to avoid concurrency issues.
+// Conversely, Device is a producer to [Device.Pool].
+//
+// A device makes its presence known to Home Assistant through a Discovery message.
+// This message enumerates a device's type and its properties.
+//
+// Discovery message are sent when homeassistant/status becomes "online".
+// The submission path for a device is:
+//
+//	homeassistant/device/{DeviceID}/config
+//
+// and is of the form [Discovery].
+//
+// Message routing is done through a Device
+// collecting all components' command topics,
+// forming a [DpMqConnInfo],
+// and sending it over to MQTT.
+//
+// A device's status is periodically updated over MQTT
+// when [time.Ticker] ticks, calling [Device.Report].
 type Device struct {
 	ticker        *time.Ticker
 	components    []ComponentHandle
