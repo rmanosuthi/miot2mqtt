@@ -132,8 +132,3 @@ func NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *miot.Info) (Di
 		Components: components,
 	}, nil
 }
-
-// GetDeviceTopic returns the base topic for a device.
-func GetDeviceTopic(did wire.DeviceID) DeviceTopic {
-	return DeviceTopic(BasePath + "/" + did.String())
-}

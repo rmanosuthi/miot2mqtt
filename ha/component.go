@@ -269,18 +269,3 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 
 	return nil
 }
-
-// UniqueID calculates unique_id for a component.
-func UniqueID(did wire.DeviceID, platform string, canon string) string {
-	var sb strings.Builder
-
-	sb.WriteString(BasePath)
-	sb.WriteRune('_')
-	sb.WriteString(did.String())
-	sb.WriteRune('_')
-	sb.WriteString(platform)
-	sb.WriteRune('_')
-	sb.WriteString(canon)
-
-	return sb.String()
-}
