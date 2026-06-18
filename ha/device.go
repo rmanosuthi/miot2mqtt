@@ -16,9 +16,11 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/miot"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 
 	paho "github.com/eclipse/paho.golang/paho"
 )
@@ -268,4 +270,24 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	default:
 		return fmt.Errorf("unknown message: %v", msg)
 	}
+}
+
+// GetDeviceTopic returns the base topic for a device.
+func GetDeviceTopic(did wire.DeviceID) DeviceTopic {
+	return DeviceTopic(BasePath + "/" + did.String())
+}
+
+// UniqueID calculates unique_id for a component.
+func UniqueID(did wire.DeviceID, platform string, canon string) string {
+	var sb strings.Builder
+
+	sb.WriteString(BasePath)
+	sb.WriteRune('_')
+	sb.WriteString(did.String())
+	sb.WriteRune('_')
+	sb.WriteString(platform)
+	sb.WriteRune('_')
+	sb.WriteString(canon)
+
+	return sb.String()
 }
