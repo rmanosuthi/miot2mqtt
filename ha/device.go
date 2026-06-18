@@ -31,7 +31,6 @@ type Device struct {
 	components    []ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
-	rsv           *Resolver
 	CommandTopics TopicMap
 	StateTopics   TopicMap
 	EnumTopics    DpMqConnInfo
@@ -41,7 +40,6 @@ type Device struct {
 }
 
 type DeviceArgs struct {
-	Resolver     *Resolver
 	MiotDevice   miot.Device
 	GlobalLogger *slog.Logger
 	Pool         chan<- any
@@ -62,7 +60,7 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	} else {
 		l = l.With("did", did, "alias", md.Alias)
 	}
-	deviceTopic := args.Resolver.GetDeviceTopic(did)
+	deviceTopic := GetDeviceTopic(did)
 
 	var components []ComponentHandle
 	commandTopics := make(TopicMap)
@@ -105,7 +103,6 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		components:    components,
 		md:            *md,
 		l:             l,
-		rsv:           args.Resolver,
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		EnumTopics:    resp,
@@ -124,7 +121,7 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	disc, err := dev.rsv.NewDiscovery(&dev.md, dev.components, &info)
+	disc, err := NewDiscovery(&dev.md, dev.components, &info)
 	if err != nil {
 		return nil, err
 	}
@@ -253,12 +250,15 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 			return err
 		}
 		l.Debug("created discovery payload", "msg", string(decl))
+
+		discTopic := ResolveDiscovery(did)
 		post := DevMqPost{
 			DID: did,
 			Payload: PostMultiple{
-				dev.rsv.ResolveDiscovery(did): decl,
+				discTopic: decl,
 			},
 		}
+
 		select {
 		case dev.Pool <- post:
 			return nil

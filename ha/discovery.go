@@ -31,13 +31,32 @@ package ha
 
 import (
 	"github.com/rmanosuthi/miot2mqtt/miot"
+	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
-// ComponentDiscovery is the marshaled form of [Component].
+// ComponentDiscovery is the marshaled form of [Component],
+// which is a JSON map in a discovery message's map of components.
+// Example, given a discovery message:
+//
+//	[...],
+//	"cmps": {
+//	  "some_unique_component_id1": {
+//	    "p": "sensor",
+//	    "device_class":"temperature",
+//	    "unit_of_measurement":"°C",
+//	    "value_template":"{{ value_json.temperature }}",
+//	    "unique_id":"temp01ae_t"
+//	  },
+//	}
+//
+// The component canonicalized as "some_unique_component_id1"
+// through [Canon] would
+// have a ComponentDiscovery with keys
+// "p", "device_class", "unit_of_measurement",
+// "value_template", and "unique_id".
 type ComponentDiscovery map[string]any
 
-// Discovery is the message used for device registration
-// created by [Resolver.NewDiscovery].
+// Discovery is the message used for device registration.
 type Discovery struct {
 	Device DeviceInfo `json:"device"`
 	Origin Origin     `json:"origin"`
@@ -84,4 +103,37 @@ func NewOrigin() Origin {
 		Version: "0.0.0",
 		URL:     "https://github.com/rmanosuthi/miot2mqtt",
 	}
+}
+
+// ResolveDiscovery returns the HA discovery topic for
+// a device.
+func ResolveDiscovery(did wire.DeviceID) Topic {
+	return Topic("homeassistant/device/" + did.String() + "/config")
+}
+
+// NewDiscovery assembles a discovery message for a device by
+// first looking up the device's info.
+//
+// This needs network access and mutates dev.
+func NewDiscovery(dev *miot.Device, cmps []ComponentHandle, info *miot.Info) (Discovery, error) {
+	device := FromInfo(dev.Alias, info)
+
+	origin := NewOrigin()
+
+	components := make(map[string]ComponentDiscovery)
+
+	for _, cmp := range cmps {
+		components[cmp.Canon] = cmp.Discovery
+	}
+
+	return Discovery{
+		Device:     device,
+		Origin:     origin,
+		Components: components,
+	}, nil
+}
+
+// GetDeviceTopic returns the base topic for a device.
+func GetDeviceTopic(did wire.DeviceID) DeviceTopic {
+	return DeviceTopic(BasePath + "/" + did.String())
 }

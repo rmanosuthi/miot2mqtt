@@ -2,7 +2,7 @@ package ha
 
 // DeviceTopic is a typed absolute path string
 // for a device's MQTT topic.
-// This is returned from [Resolver.GetDeviceTopic] and
+// This is returned from [GetDeviceTopic] and
 // is defined as:
 //
 //	miot2mqtt/{DeviceID}
@@ -41,7 +41,7 @@ func (dt DeviceTopic) Glob() string {
 }
 
 func (dt DeviceTopic) Component(cmp Component) ComponentTopic {
-	return ComponentTopic(string(dt) + "/" + cmp.Platform + "/" + Canon(cmp))
+	return ComponentTopic(string(dt) + "/" + cmp.Platform + "/" + cmp.Canon())
 }
 
 func (ct ComponentTopic) AsRoot() string {

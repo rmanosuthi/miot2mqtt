@@ -103,8 +103,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	rsv, _ := ha.NewResolver()
-
 	var wg sync.WaitGroup
 	chDpMqtt := make(chan any)
 	chMqttDp := make(chan any)
@@ -135,7 +133,6 @@ func main() {
 	dpArgs := ha.DevicePoolArgs{
 		FromMQTT:     chMqttDp,
 		ToMQTT:       chDpMqtt,
-		Resolver:     &rsv,
 		GlobalLogger: l,
 	}
 	dp, err := ha.NewDevicePool(ctx, devices, dpArgs)
