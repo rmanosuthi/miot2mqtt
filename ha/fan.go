@@ -1,6 +1,6 @@
 package ha
 
-var Fan = []Component{
+var Fan = []ComponentTemplate{
 	// Fan
 	{
 		Mandatory: true,

@@ -23,11 +23,11 @@ var rgCanon = regexp.MustCompile(`[\s\-]+`)
 const BasePath = "miot2mqtt"
 
 // A ComponentHandle is an in-memory representation of
-// a [Component] associated with a device.
+// a [ComponentTemplate] associated with a device.
 type ComponentHandle struct {
-	// A reference to the Component is kept just in case.
+	// A reference to the template is kept just in case.
 	// FIXME remove?
-	cmp Component
+	cmp ComponentTemplate
 	// Device ID of the associated [miot.Device].
 	did wire.DeviceID
 	// HA platform of the component. Examples: "fan", "number", "switch"
@@ -39,7 +39,7 @@ type ComponentHandle struct {
 	AvailTopic    Topic
 }
 
-// A Component is template of a controllable single-platform entity
+// A ComponentTemplate is template of a controllable single-platform entity
 // belonging to a [Device].
 //
 // Example: a fan may have several Components:
@@ -58,12 +58,10 @@ type ComponentHandle struct {
 //   - Message routing TODO document
 //   - User interaction
 //
-// # Availability
-//
 // A component is simply marked as online whenever Device starts and
 // offline when the program exits.
 // This will most likely change in the future.
-type Component struct {
+type ComponentTemplate struct {
 	// Mandatory tells the resolver this component's initialization must succeed,
 	// else the entire device's initialization will be aborted.
 	Mandatory bool
@@ -90,19 +88,19 @@ type Component struct {
 	Properties PropDecls
 }
 
-// Canon returns a canonical form of a Component
+// Canon returns a canonical form of a component
 // for use as
 // the key in the discovery message's components map and
 // for deriving [UniqueID].
 //
 // See [ComponentDiscovery] for an example.
-func (cmp *Component) Canon() string {
+func (cmp *ComponentTemplate) Canon() string {
 	canon := strings.ToLower(rgCanon.ReplaceAllLiteralString(cmp.Alias, "_"))
 	return canon
 }
 
 // AttachComponent returns a component handle given a
-// Component and a [miot.Device].
+// ComponentTemplate and a [miot.Device].
 //
 // Errors encountered parsing non-mandatory properties
 // are always ignored.
@@ -110,7 +108,7 @@ func (cmp *Component) Canon() string {
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
 // it may not be needed.
-func AttachComponent(cmp Component, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
+func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
 	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform
 	did := dev.DeviceID

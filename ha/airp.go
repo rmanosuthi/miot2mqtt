@@ -2,7 +2,7 @@ package ha
 
 import "github.com/rmanosuthi/miot2mqtt/wire"
 
-var AirPurifier = []Component{
+var AirPurifier = []ComponentTemplate{
 	// Fan
 	{
 		Mandatory: true,

@@ -3,7 +3,7 @@
 // A device type has the general structure of:
 //
 //	Hint	string
-//	Components	[]Component
+//	Components	[]ComponentTemplate
 //
 // First, obtain its spec file:
 //
@@ -53,14 +53,14 @@ func (e ErrDevUnsupported) Error() string {
 	return fmt.Sprintf("unsupported device: did %v model %v class %v", e.did, e.model, e.cls)
 }
 
-// MatchDevice gets a [Component] group to attach to a device by
-// calling [Hint] to get the device type, then
-// enumerating its components.
+// MatchDevice gets a [ComponentTemplate] group to attach to a device by
+// matching from the device class and
+// enumerating its components if one matches.
 //
 // Modify this function to add a new device type.
 //
 // All possible components a device may possess are returned.
-func MatchDevice(md *miot.Device) ([]Component, error) {
+func MatchDevice(md *miot.Device) ([]ComponentTemplate, error) {
 	hint := md.Class
 	switch hint {
 	case "fan":
