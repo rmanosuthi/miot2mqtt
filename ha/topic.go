@@ -1,10 +1,5 @@
 package ha
 
-import (
-	"errors"
-	"fmt"
-)
-
 // A Topic is a typed absolute path string
 // for an MQTT topic.
 // It is produced by chaining *Topic types'
@@ -73,14 +68,17 @@ func (ct ComponentTopic) AvailTopic() Topic {
 	return Topic(string(ct) + "/availability")
 }
 
+// Prefix produces a property topic given a
+// property prefix and a component topic.
+// Use with care.
+func (ct ComponentTopic) Prefix(pfx string) PropertyTopic {
+	return PropertyTopic{abs: string(ct) + "/" + pfx, rel: "~/" + pfx}
+}
+
 // Property produces a property topic given a
 // property declaration and a component topic.
 func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
-	if decl.Prefix == "" {
-		return PropertyTopic{abs: string(ct) + "/default", rel: "~/default"}
-	} else {
-		return PropertyTopic{abs: string(ct) + "/" + decl.Prefix, rel: "~/" + decl.Prefix}
-	}
+	return PropertyTopic{abs: string(ct) + "/" + decl.Prefix, rel: "~/" + decl.Prefix}
 }
 
 // PropertyTopic is a typed string encoding both
@@ -99,23 +97,6 @@ func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
 type PropertyTopic struct {
 	abs string
 	rel string
-}
-
-func ParsePropertyTopic(t string) (PropertyTopic, error) {
-	var did, cmpPlat, cmpCanon, pfx string
-	n, err := fmt.Sscanf(t, "miot2mqtt/%v/%v/%v/%v", &did, &cmpPlat, &cmpCanon, &pfx)
-	if err != nil {
-		return PropertyTopic{}, err
-	}
-
-	if n < 4 {
-		return PropertyTopic{}, errors.New("invalid segment count")
-	}
-
-	return PropertyTopic{
-		abs: t,
-		rel: "~/" + pfx,
-	}, nil
 }
 
 func (pt PropertyTopic) Command(abs bool) Topic {

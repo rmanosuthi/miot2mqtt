@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ type Device struct {
 	components    []ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
+	rewrite       map[Topic]RewriteEntry
 	commandTopics TopicMap
 	stateTopics   TopicMap
 	enumTopics    DpMqConnInfo
@@ -76,9 +78,10 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	var components []ComponentHandle
 	commandTopics := make(TopicMap)
 	stateTopics := make(TopicMap)
+	rewrite := make(map[Topic]RewriteEntry)
 
 	for _, cmp := range cmps {
-		ch, err := AttachComponent(cmp, md, deviceTopic)
+		ch, err := AttachComponent(rewrite, cmp, md, deviceTopic)
 		if err != nil {
 			if cmp.Mandatory {
 				return Device{}, fmt.Errorf("component attach: %w", err)
@@ -112,6 +115,7 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		enumTopics:    resp,
 		mbox:          mbox,
 		pool:          args.Pool,
+		rewrite:       rewrite,
 	}, nil
 }
 
@@ -224,6 +228,32 @@ func (dev *Device) shutdown(ctx context.Context) error {
 	return nil
 }
 
+func (dev *Device) RewritePublish(pub *MqDevPublish) error {
+	// Most messages don't need to be rewritten.
+	// Mutate pub in place to avoid pointless copies.
+	entry, ok := dev.rewrite[pub.Topic]
+	if !ok {
+		// Exit early if no such rewrite entry exists.
+		dev.l.Debug("no rewrite")
+		return nil
+	}
+
+	if !slices.Equal(pub.Payload, entry.FromPayload) {
+		// Topic match but payload mismatch.
+		// Not an error;
+		// example is rewrite fan speed == 0 to fan off
+		// which ignores fan speed != 0
+		dev.l.Debug("rewrite mismatch")
+		return nil
+	}
+
+	// Topic and payload match.
+	dev.l.Debug("rewrite", "src", pub.Topic, "dst", entry.ToTopic)
+	pub.Topic = entry.ToTopic.Command(true)
+	pub.Payload = entry.ToPayload
+	return nil
+}
+
 func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	l := dev.l
 	did := dev.md.DeviceID
@@ -231,6 +261,11 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	switch msg := msg.(type) {
 	case MqDevPublish:
 		l.Debug("publish")
+		err := dev.RewritePublish(&msg)
+		if err != nil {
+			return err
+		}
+
 		ctxSet, cancelSet := context.WithTimeout(ctx, time.Second)
 		defer cancelSet()
 
@@ -292,4 +327,28 @@ func UniqueID(did wire.DeviceID, platform string, canon string) string {
 	sb.WriteString(canon)
 
 	return sb.String()
+}
+
+// A RewriteEntry is associated with a command topic to
+// redirect a command to a different topic and
+// change the payload's content.
+//
+// The marshaled form is [PropRewrite].
+//
+// Example: HA can send either "fan off" to ~/command
+// or "fan speed 0" to ~/fan_speed/command, even when
+// fan speed range has been defined as non-zero.
+//
+// miot may not support "fan speed 0" and will return an error.
+// "fan speed 0" must then be rewritten to
+// "fan off" and sent to ~/command instead.
+//
+// Topic rewrites are done before value rewrite,
+// are restricted to a single component's scope,
+// and are done by [Device.RewritePublish].
+// However, cross-component references are possible.
+type RewriteEntry struct {
+	FromPayload []byte
+	ToTopic     PropertyTopic
+	ToPayload   []byte
 }

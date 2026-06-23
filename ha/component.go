@@ -103,6 +103,7 @@ func (cmp *ComponentTemplate) Canon() string {
 // it needs the same stuff as everything else, but
 // it may not be needed.
 func AttachComponent(
+	rewrite map[Topic]RewriteEntry,
 	cmp ComponentTemplate,
 	dev *miot.Device, dt DeviceTopic,
 ) (ComponentHandle, error) {
@@ -127,6 +128,7 @@ func AttachComponent(
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		CmpDiscovery:  cmpDiscov,
+		Rewrite:       rewrite,
 	}
 
 	svc, ok := dev.ServiceName(cmp.Service)
@@ -155,10 +157,14 @@ func AttachComponent(
 
 		// try to attach this PropDecl
 		err := AttachPropDecl(dst, AttachPropDeclArgs{
-			Decl:           &decl,
-			Spec:           &pair.Spec,
-			Key:            pair.Key,
-			ComponentTopic: &componentTopic,
+			Service: &svc,
+			Decl:    &decl,
+			Spec:    &pair.Spec,
+			Key:     pair.Key,
+			Rewrite: RewriteArgs{
+				ComponentTopic: &componentTopic,
+				MiotDevice:     dev,
+			},
 		})
 		if err != nil {
 			if decl.Mandatory {
@@ -182,13 +188,21 @@ func AttachComponent(
 	}, nil
 }
 
+// RewriteArgs contains necessary data to
+// populate a [RewriteEntry].
+type RewriteArgs struct {
+	MiotDevice     *miot.Device
+	ComponentTopic *ComponentTopic
+}
+
 // AttachPropDeclArgs contains arguments to
 // [AttachPropDecl].
 type AttachPropDeclArgs struct {
-	Decl           *PropDecl
-	Spec           *config.SpecProp
-	Key            prop.PropKey
-	ComponentTopic *ComponentTopic
+	Service *miot.Service
+	Decl    *PropDecl
+	Spec    *config.SpecProp
+	Key     prop.PropKey
+	Rewrite RewriteArgs
 }
 
 // AttachPropDeclDst contains the result of
@@ -199,6 +213,7 @@ type AttachPropDeclDst struct {
 	CommandTopics TopicMap
 	StateTopics   TopicMap
 	CmpDiscovery  ComponentDiscovery
+	Rewrite       map[Topic]RewriteEntry
 }
 
 // AttachPropDecl uses PropDecl and supporting data to
@@ -207,18 +222,30 @@ type AttachPropDeclDst struct {
 //   - in-memory command topics
 //   - in-memory state topics
 //   - prepare component discovery
+//   - rewrite mapping
 func AttachPropDecl(dst AttachPropDeclDst, args AttachPropDeclArgs) error {
 	attr := args.Decl.Attr()
 	decl := args.Decl
 	prop := args.Spec
-	componentTopic := args.ComponentTopic
-	propTopic := componentTopic.Property(decl)
+	propTopic := args.Rewrite.ComponentTopic.Property(decl)
+	targetPropPrefix := decl.Rewrite.Target
 
 	var discovAttrs map[string]any
 	var vm wire.ValueMap
 
 	// default to identity map
 	vm = &wire.IdentityValueMap{}
+
+	if targetPropPrefix != "" {
+		srcTopic := propTopic.Command(true)
+		targetTopic := args.Rewrite.ComponentTopic.Prefix(targetPropPrefix)
+		rwe := RewriteEntry{
+			FromPayload: decl.Rewrite.Match,
+			ToTopic:     targetTopic,
+			ToPayload:   decl.Rewrite.Content,
+		}
+		dst.Rewrite[srcTopic] = rwe
+	}
 
 	if decl.Expand != nil {
 		exp, err := decl.Expand(prop)

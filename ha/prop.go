@@ -14,6 +14,14 @@ var ErrNoMinMax = errors.New("property does not have min/max range")
 type key = prop.PropKey
 type spec = *config.SpecProp
 
+// PropRewrite is the marshaled form of [RewriteEntry].
+type PropRewrite struct {
+	Match []byte
+	//
+	Target  string
+	Content []byte
+}
+
 // PropDecl represents attributes that will be associated with a miot property.
 type PropDecl struct {
 	// Mandatory means a given device must have this property.
@@ -25,6 +33,8 @@ type PropDecl struct {
 	// Prefix gets prepended to generated attribute names.
 	// An empty value means this route belongs to a component's main property.
 	Prefix string
+	// (Optional) TODO
+	Rewrite PropRewrite
 	// (Optional) Expand will be called to
 	// generate [wire.ValueMap] and
 	// append more attributes,
@@ -37,7 +47,7 @@ type PropDecl struct {
 
 // Attr returns the attribute fragment of a property.
 func (pd *PropDecl) Attr() string {
-	if pd.Prefix == "" {
+	if pd.Prefix == "default" {
 		return ""
 	} else {
 		return pd.Prefix + "_"

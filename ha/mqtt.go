@@ -69,19 +69,7 @@ type MQTTArgs struct {
 //
 // HA sometimes send values that should have gone to a different topic in
 // a different form.
-//
-// Example: HA can send either "fan off" to ~/command
-// or "fan speed 0" to ~/fan_speed/command, even when
-// fan speed range has been defined as non-zero.
-//
-// miot may not support "fan speed 0" and will return an error.
-// "fan speed 0" must then be rewritten to
-// "fan off" and sent to ~/command instead.
-//
-// Topic rewrites are done before value rewrites.
-// Topic rewrites are restricted to a single device's scope
-// and are done by [Device.RewritePublish].
-// However, cross-component references are possible.
+// See [RewriteEntry] for a more thorough explanation.
 type MQTTHandle struct {
 	conn           *autopaho.ConnectionManager
 	router         *paho.StandardRouter

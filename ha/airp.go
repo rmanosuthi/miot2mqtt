@@ -12,7 +12,7 @@ var AirPurifier = []ComponentTemplate{
 		Properties: PropDecls{
 			"on": {
 				Mandatory: true,
-				Prefix:    "",
+				Prefix:    "default",
 			},
 			"fan-level": {
 				Prefix: "percentage",
@@ -52,7 +52,7 @@ var AirPurifier = []ComponentTemplate{
 		Properties: PropDecls{
 			"relative-humidity": {
 				Mandatory: true,
-				Prefix:    "",
+				Prefix:    "default",
 			},
 		},
 	},
