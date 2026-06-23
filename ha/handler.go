@@ -15,7 +15,7 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 	topics := make(map[prop.PropKey]Topic)
 
 	// prepare request
-	for topic, entry := range dev.StateTopics {
+	for topic, entry := range dev.stateTopics {
 		key := entry.PropKey
 		gp := prop.NewGetProp(key, entry.ValueMap)
 		req[key] = &gp
@@ -38,18 +38,16 @@ func (dev *Device) Report(ctx context.Context) (DevMqPost, error) {
 	}, nil
 }
 
-func (dev *Device) handleSetProp(ctx context.Context, rawTopic string, payload []byte) (DevMqPost, error) {
+func (dev *Device) handleSetProp(ctx context.Context, topic Topic, payload []byte) (DevMqPost, error) {
 	var val json.RawMessage = json.RawMessage(payload)
-
-	topic := Topic(rawTopic)
-	cmdEntry, ok := dev.CommandTopics[topic]
+	cmdEntry, ok := dev.commandTopics[topic]
 	if !ok {
 		return DevMqPost{}, fmt.Errorf("command topic not found: %v", topic)
 	}
 
 	key := cmdEntry.PropKey
 	var stateTopic Topic
-	for topic, entry := range dev.StateTopics {
+	for topic, entry := range dev.stateTopics {
 		if entry.PropKey == key {
 			stateTopic = topic
 		}

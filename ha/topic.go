@@ -1,15 +1,24 @@
 package ha
 
+import (
+	"errors"
+	"fmt"
+)
+
 // A Topic is a typed absolute path string
 // for an MQTT topic.
 // It is produced by chaining *Topic types'
 // transformation functions together, such as
 // [DeviceTopic.Component] and [ComponentTopic.Property].
+//
+// Only Topic is meant to be used as a key to MQTT topic-data maps.
+// Derive it from the *Topic types using relevant functions;
+// never do conversion with Topic().
 type Topic string
 
-// MQTT extracts the string of the Topic and
+// Unwrap extracts the string of the Topic and
 // must only be called by [MQTTHandle].
-func (t *Topic) MQTT() string {
+func (t *Topic) Unwrap() string {
 	return string(*t)
 }
 
@@ -90,6 +99,23 @@ func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
 type PropertyTopic struct {
 	abs string
 	rel string
+}
+
+func ParsePropertyTopic(t string) (PropertyTopic, error) {
+	var did, cmpPlat, cmpCanon, pfx string
+	n, err := fmt.Sscanf(t, "miot2mqtt/%v/%v/%v/%v", &did, &cmpPlat, &cmpCanon, &pfx)
+	if err != nil {
+		return PropertyTopic{}, err
+	}
+
+	if n < 4 {
+		return PropertyTopic{}, errors.New("invalid segment count")
+	}
+
+	return PropertyTopic{
+		abs: t,
+		rel: "~/" + pfx,
+	}, nil
 }
 
 func (pt PropertyTopic) Command(abs bool) Topic {

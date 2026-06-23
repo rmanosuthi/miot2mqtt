@@ -12,8 +12,6 @@ import (
 
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
-
-	paho "github.com/eclipse/paho.golang/paho"
 )
 
 var ErrDevEv = errors.New("incoming event")
@@ -23,7 +21,8 @@ var ErrDevEv = errors.New("incoming event")
 // The non-threadsafe [miot.Device] is wrapped
 // and external communication is done through
 // [Device.Post] to avoid concurrency issues.
-// Conversely, Device is a producer to [Device.Pool].
+// Conversely, Device is a producer to [Device.Pool]
+// which communicates with [DevicePool].
 //
 // A device makes its presence known to Home Assistant through a Discovery message.
 // This message enumerates a device's type and its properties.
@@ -35,24 +34,20 @@ var ErrDevEv = errors.New("incoming event")
 //
 // and is of the form [Discovery].
 //
-// Message routing is done through a Device
-// collecting all components' command topics,
-// forming a [DpMqConnInfo],
-// and sending it over to MQTT.
-//
 // A device's status is periodically updated over MQTT
 // when [time.Ticker] ticks, calling [Device.Report].
+//
+// See [MQTTHandle] for more MQTT related info.
 type Device struct {
 	ticker        *time.Ticker
 	components    []ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
-	CommandTopics TopicMap
-	StateTopics   TopicMap
-	EnumTopics    DpMqConnInfo
-	// Recognized: DpDevReqDiscovery
-	mbox chan any
-	Pool chan<- any
+	commandTopics TopicMap
+	stateTopics   TopicMap
+	enumTopics    DpMqConnInfo
+	mbox          chan any
+	pool          chan<- any
 }
 
 type DeviceArgs struct {
@@ -100,16 +95,9 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	mbox := make(chan any)
 
 	resp := DpMqConnInfo{
-		DID:       did,
-		RouteGlob: deviceTopic.Glob(),
-		SubTopics: commandTopics,
-		ForwardTo: func(pub *paho.Publish) {
-			select {
-			case mbox <- MqDevPublish{pub}:
-			default:
-				slog.Error("mq forwarder", "reason", ErrChFull)
-			}
-		},
+		DID:        did,
+		SubTopics:  commandTopics,
+		DeviceMbox: mbox,
 	}
 
 	l.Debug("command", "topics", commandTopics)
@@ -119,11 +107,11 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		components:    components,
 		md:            *md,
 		l:             l,
-		CommandTopics: commandTopics,
-		StateTopics:   stateTopics,
-		EnumTopics:    resp,
+		commandTopics: commandTopics,
+		stateTopics:   stateTopics,
+		enumTopics:    resp,
 		mbox:          mbox,
-		Pool:          args.Pool,
+		pool:          args.Pool,
 	}, nil
 }
 
@@ -152,7 +140,7 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 //  1. Handle remaining mailbox messages
 //  2. Update availability to offline
 //  3. Return
-func (dev Device) Subscribe(ctx context.Context) error {
+func (dev *Device) Subscribe(ctx context.Context) error {
 	l := dev.l
 	did := dev.md.DeviceID
 	l.Info("service is live")
@@ -161,7 +149,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 	for _, ch := range dev.components {
 		cmpsOnline[ch.AvailTopic] = []byte("online")
 	}
-	dev.Pool <- DevMqPost{
+	dev.pool <- DevMqPost{
 		DID:     did,
 		Payload: cmpsOnline,
 	}
@@ -174,7 +162,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 	if err != nil {
 		l.Error("failed to report", "reason", err)
 	} else {
-		dev.Pool <- report
+		dev.pool <- report
 	}
 
 	for run {
@@ -189,7 +177,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 				continue
 			}
 
-			dev.Pool <- report
+			dev.pool <- report
 		case <-ctx.Done():
 			run = false
 		case msg, ok := <-dev.mbox:
@@ -230,7 +218,7 @@ func (dev *Device) shutdown(ctx context.Context) error {
 	for _, cmp := range dev.components {
 		post.Payload[cmp.AvailTopic] = []byte("offline")
 	}
-	dev.Pool <- post
+	dev.pool <- post
 
 	l.Info("done")
 	return nil
@@ -243,16 +231,16 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	switch msg := msg.(type) {
 	case MqDevPublish:
 		l.Debug("publish")
-		pub := msg
 		ctxSet, cancelSet := context.WithTimeout(ctx, time.Second)
 		defer cancelSet()
-		post, err := dev.handleSetProp(ctxSet, pub.Topic, pub.Payload)
+
+		post, err := dev.handleSetProp(ctxSet, msg.Topic, msg.Payload)
 		if err != nil {
 			return errors.Join(ErrDevEv, err)
 		}
 
 		select {
-		case dev.Pool <- post:
+		case dev.pool <- post:
 			return nil
 		default:
 			return ErrChFull
@@ -276,7 +264,7 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 		}
 
 		select {
-		case dev.Pool <- post:
+		case dev.pool <- post:
 			return nil
 		default:
 			return ErrChFull

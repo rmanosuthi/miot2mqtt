@@ -26,7 +26,6 @@ import (
 	"errors"
 
 	"github.com/eclipse/paho.golang/autopaho"
-	paho "github.com/eclipse/paho.golang/paho"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -54,7 +53,8 @@ type MqDpReqDiscovery struct {
 // This message is special in that communication bypasses DevicePool;
 // see [NewDevice] and [DpMqConnInfo.ForwardTo].
 type MqDevPublish struct {
-	*paho.Publish
+	Topic   Topic
+	Payload []byte
 }
 
 // DpMqConnInfo is sent from DevicePool to MQTT,
@@ -63,12 +63,9 @@ type MqDevPublish struct {
 type DpMqConnInfo struct {
 	// Device ID.
 	DID wire.DeviceID
-	// Route glob topic.
-	RouteGlob string
 	// Subscription topics.
-	SubTopics TopicMap
-	// Callback to process the message.
-	ForwardTo func(*paho.Publish)
+	SubTopics  TopicMap
+	DeviceMbox chan<- any
 }
 
 type DpDevReqDiscovery MqDpReqDiscovery

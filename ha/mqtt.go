@@ -1,28 +1,3 @@
-// # Subscribe vs Route
-//
-// paho separates message delivery into two concepts.
-// Networking analogy will be used:
-//
-//  1. Subscribe - listen on an address
-//  2. Route - entry in a routing table
-//
-// MQTT statically subscribes to homeassistant/status
-// and dynamically subscribes to each device's commandTopics by
-// querying [DevicePool] through [MqDpConnected].
-//
-// A device's command topics are generated through [AttachComponent].
-//
-// Subscriptions and routes are set up when the connection is established
-// through OnConnectionUp.
-//
-// Note: MQTT subscribes to specific non-wildcard topics on a [Device]'s behalf,
-// but routing is done through a path glob
-//
-//	miot2mqtt/{DeviceID}/#
-//
-// We do not simply subscribe to a wildcard topic, else
-// we will get a "loopback" message whenever a property's
-// state is updated through us publishing it.
 package ha
 
 import (
@@ -55,6 +30,58 @@ type MQTTArgs struct {
 	CancelDp     context.CancelFunc
 }
 
+// MQTTHandle wraps the complex paho MQTT library and
+// only exposes what we need.
+// Its fields should be treated as implementation details.
+//
+// Message delivery involves these concepts summarized with
+// networking terminology:
+//
+// # Listen
+//
+// MQTT statically subscribes to homeassistant/status
+// and dynamically subscribes to each device's command topics.
+//
+// Subscriptions and routes are set up when the connection is established;
+// see [mqttConnUp] and [DpMqConnInfo].
+//
+// # Route
+//
+// A router is required by paho.
+// A standard one is used.
+// MQTT subscribes to specific non-wildcard topics on a [Device]'s behalf,
+// but routing is done through a path glob
+//
+//	miot2mqtt/{DeviceID}/#
+//
+// We do not simply subscribe to a wildcard topic, else
+// we will get a "loopback" message whenever a property's
+// state is updated through us publishing it.
+//
+// MQTT never talks to devices directly;
+// communication is done through [DevicePool] by
+// addressing a device by its DeviceID.
+//
+// # Proxy/rewrite
+//
+// Command and state types/values between HA and miot may not always match up.
+// See [wire.ValueMap] for translating between the two.
+//
+// HA sometimes send values that should have gone to a different topic in
+// a different form.
+//
+// Example: HA can send either "fan off" to ~/command
+// or "fan speed 0" to ~/fan_speed/command, even when
+// fan speed range has been defined as non-zero.
+//
+// miot may not support "fan speed 0" and will return an error.
+// "fan speed 0" must then be rewritten to
+// "fan off" and sent to ~/command instead.
+//
+// Topic rewrites are done before value rewrites.
+// Topic rewrites are restricted to a single device's scope
+// and are done by [Device.RewritePublish].
+// However, cross-component references are possible.
 type MQTTHandle struct {
 	conn           *autopaho.ConnectionManager
 	router         *paho.StandardRouter
@@ -113,23 +140,35 @@ WaitForTopics:
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case devTopics, ok := <-chSubs:
+		case devConnInfo, ok := <-chSubs:
 			if !ok {
 				// DevicePool is done responding
 				break WaitForTopics
 			}
-			for topic, _ := range devTopics.SubTopics {
+
+			for topic := range devConnInfo.SubTopics {
+				mqTopic := topic.Unwrap()
+
+				// build handler
+				handleCmd := func(pub *paho.Publish) {
+					select {
+					case devConnInfo.DeviceMbox <- MqDevPublish{
+						Topic:   topic,
+						Payload: pub.Payload,
+					}:
+					default:
+						l.Error("device blocked, dropping message", "did", devConnInfo.DID)
+					}
+				}
+
 				// append subs
 				subs = append(subs, paho.SubscribeOptions{
-					Topic: string(topic),
+					Topic: mqTopic,
 					QoS:   1,
 				})
-			}
 
-			// setup route
-			router.UnregisterHandler(devTopics.RouteGlob)
-			router.RegisterHandler(devTopics.RouteGlob, devTopics.ForwardTo)
-			l.Debug("setup routes")
+				router.RegisterHandler(mqTopic, handleCmd)
+			}
 		}
 	}
 
@@ -310,18 +349,25 @@ func (mq *MQTTHandle) shutdown(ctx context.Context) error {
 	// step 3
 	// FIXME this might not 100% match what was set up initially
 	// keep a copy around?
-	l.Debug("remove routes subs")
-	for devTopics := range chSubs {
-		for topic := range devTopics.SubTopics {
-			topics = append(topics, topic.MQTT())
+	//
+	// need to gather all topics first
+	l.Debug("remove subs routes")
+	for devConnInfo := range chSubs {
+		for mqTopic := range devConnInfo.SubTopics {
+			topic := mqTopic.Unwrap()
+			topics = append(topics, topic)
 		}
-		mq.router.UnregisterHandler(devTopics.RouteGlob)
 	}
+	// unsubscribe
 	_, err := mq.conn.Unsubscribe(ctx, &paho.Unsubscribe{
 		Topics: topics,
 	})
 	if err != nil {
 		l.Error("unsubscribe from topics", "reason", err)
+	}
+	// remove routes
+	for _, topic := range topics {
+		mq.router.UnregisterHandler(topic)
 	}
 
 	// steps 4-6
@@ -374,7 +420,7 @@ func mqttHandleDpMsg(ctx context.Context, conn *autopaho.ConnectionManager, msg 
 		for topic, payload := range msg.Payload {
 			_, err := conn.Publish(ctx, &paho.Publish{
 				QoS:     1,
-				Topic:   topic.MQTT(),
+				Topic:   topic.Unwrap(),
 				Payload: payload,
 			})
 			if err != nil {

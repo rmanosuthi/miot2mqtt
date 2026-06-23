@@ -94,7 +94,7 @@ func (cmp *ComponentTemplate) Canon() string {
 }
 
 // AttachComponent returns a component handle given a
-// ComponentTemplate and a [miot.Device].
+// ComponentTemplate and a device.
 //
 // Errors encountered parsing non-mandatory properties
 // are always ignored.
@@ -102,7 +102,10 @@ func (cmp *ComponentTemplate) Canon() string {
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
 // it may not be needed.
-func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
+func AttachComponent(
+	cmp ComponentTemplate,
+	dev *miot.Device, dt DeviceTopic,
+) (ComponentHandle, error) {
 	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform
 	did := dev.DeviceID
@@ -120,7 +123,7 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 	cmpDiscov["~"] = root
 	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 
-	dst := attachPropDeclDst{
+	dst := AttachPropDeclDst{
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		CmpDiscovery:  cmpDiscov,
@@ -151,7 +154,7 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 		}
 
 		// try to attach this PropDecl
-		err := attachPropDecl(dst, attachPropDeclArgs{
+		err := AttachPropDecl(dst, AttachPropDeclArgs{
 			Decl:           &decl,
 			Spec:           &pair.Spec,
 			Key:            pair.Key,
@@ -179,30 +182,37 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 	}, nil
 }
 
-type attachPropDeclArgs struct {
+// AttachPropDeclArgs contains arguments to
+// [AttachPropDecl].
+type AttachPropDeclArgs struct {
 	Decl           *PropDecl
 	Spec           *config.SpecProp
 	Key            prop.PropKey
 	ComponentTopic *ComponentTopic
 }
 
-type attachPropDeclDst struct {
+// AttachPropDeclDst contains the result of
+// [AttachPropDecl] and
+// is preserved between calls to
+// attach properties.
+type AttachPropDeclDst struct {
 	CommandTopics TopicMap
 	StateTopics   TopicMap
 	CmpDiscovery  ComponentDiscovery
 }
 
-// attachPropDecl uses PropDecl and supporting data to
+// AttachPropDecl uses PropDecl and supporting data to
 // populate the following:
 //
 //   - in-memory command topics
 //   - in-memory state topics
 //   - prepare component discovery
-func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
+func AttachPropDecl(dst AttachPropDeclDst, args AttachPropDeclArgs) error {
 	attr := args.Decl.Attr()
 	decl := args.Decl
 	prop := args.Spec
 	componentTopic := args.ComponentTopic
+	propTopic := componentTopic.Property(decl)
 
 	var discovAttrs map[string]any
 	var vm wire.ValueMap
@@ -233,7 +243,6 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		dst.CmpDiscovery["payload_"+attr+"off"] = "false"
 	}
 
-	propTopic := componentTopic.Property(decl)
 	if prop.Read() {
 		// state topic in discov: relative
 		dst.CmpDiscovery[attr+"state_topic"] = propTopic.State(false)
