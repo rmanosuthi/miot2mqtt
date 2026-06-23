@@ -8,14 +8,14 @@ var Fan = []ComponentTemplate{
 		Service:   "fan",
 		Platform:  "fan",
 		Properties: PropDecls{
-			"on": PropDecl{
+			"on": {
 				Mandatory: true,
 				Prefix:    "",
 			},
-			"horizontal-swing": PropDecl{
+			"horizontal-swing": {
 				Prefix: "oscillation",
 			},
-			"fan-level": PropDecl{
+			"fan-level": {
 				Prefix: "percentage",
 				Expand: func(s spec) (PropExpansion, error) {
 					res, err := MinMax[uint8](s)
@@ -39,7 +39,7 @@ var Fan = []ComponentTemplate{
 		Service:   "fan",
 		Platform:  "number",
 		Properties: PropDecls{
-			"horizontal-angle": PropDecl{
+			"horizontal-angle": {
 				Mandatory: true,
 				Prefix:    "",
 				Expand: func(s spec) (PropExpansion, error) {

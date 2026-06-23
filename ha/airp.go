@@ -10,11 +10,11 @@ var AirPurifier = []ComponentTemplate{
 		Service:   "air-purifier",
 		Platform:  "fan",
 		Properties: PropDecls{
-			"on": PropDecl{
+			"on": {
 				Mandatory: true,
 				Prefix:    "",
 			},
-			"fan-level": PropDecl{
+			"fan-level": {
 				Prefix: "percentage",
 				Expand: func(s spec) (PropExpansion, error) {
 					res, err := MinMax[uint8](s)
@@ -50,7 +50,7 @@ var AirPurifier = []ComponentTemplate{
 		Service:   "environment",
 		Platform:  "sensor",
 		Properties: PropDecls{
-			"relative-humidity": PropDecl{
+			"relative-humidity": {
 				Mandatory: true,
 				Prefix:    "",
 			},
