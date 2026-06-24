@@ -346,7 +346,6 @@ func UniqueID(did wire.DeviceID, platform string, canon string) string {
 // Topic rewrites are done before value rewrite,
 // are restricted to a single component's scope,
 // and are done by [Device.RewritePublish].
-// However, cross-component references are possible.
 type RewriteEntry struct {
 	FromPayload []byte
 	ToTopic     PropertyTopic
