@@ -94,7 +94,7 @@ func (cmp *ComponentTemplate) Canon() string {
 }
 
 // AttachComponent returns a component handle given a
-// ComponentTemplate and a [miot.Device].
+// ComponentTemplate and a device.
 //
 // Errors encountered parsing non-mandatory properties
 // are always ignored.
@@ -102,7 +102,11 @@ func (cmp *ComponentTemplate) Canon() string {
 // FIXME this function always populates discovery message since
 // it needs the same stuff as everything else, but
 // it may not be needed.
-func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (ComponentHandle, error) {
+func AttachComponent(
+	rewrite map[Topic]RewriteEntry,
+	cmp ComponentTemplate,
+	dev *miot.Device, dt DeviceTopic,
+) (ComponentHandle, error) {
 	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform
 	did := dev.DeviceID
@@ -120,10 +124,11 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 	cmpDiscov["~"] = root
 	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 
-	dst := attachPropDeclDst{
+	dst := AttachPropDeclDst{
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		CmpDiscovery:  cmpDiscov,
+		Rewrite:       rewrite,
 	}
 
 	svc, ok := dev.ServiceName(cmp.Service)
@@ -151,11 +156,15 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 		}
 
 		// try to attach this PropDecl
-		err := attachPropDecl(dst, attachPropDeclArgs{
-			Decl:           &decl,
-			Spec:           &pair.Spec,
-			Key:            pair.Key,
-			ComponentTopic: &componentTopic,
+		err := AttachPropDecl(dst, AttachPropDeclArgs{
+			Service: &svc,
+			Decl:    &decl,
+			Spec:    &pair.Spec,
+			Key:     pair.Key,
+			Rewrite: RewriteArgs{
+				ComponentTopic: &componentTopic,
+				MiotDevice:     dev,
+			},
 		})
 		if err != nil {
 			if decl.Mandatory {
@@ -179,36 +188,64 @@ func AttachComponent(cmp ComponentTemplate, dev *miot.Device, dt DeviceTopic) (C
 	}, nil
 }
 
-type attachPropDeclArgs struct {
-	Decl           *PropDecl
-	Spec           *config.SpecProp
-	Key            prop.PropKey
+// RewriteArgs contains necessary data to
+// populate a [RewriteEntry].
+type RewriteArgs struct {
+	MiotDevice     *miot.Device
 	ComponentTopic *ComponentTopic
 }
 
-type attachPropDeclDst struct {
+// AttachPropDeclArgs contains arguments to
+// [AttachPropDecl].
+type AttachPropDeclArgs struct {
+	Service *miot.Service
+	Decl    *PropDecl
+	Spec    *config.SpecProp
+	Key     prop.PropKey
+	Rewrite RewriteArgs
+}
+
+// AttachPropDeclDst contains the result of
+// [AttachPropDecl] and
+// is preserved between calls to
+// attach properties.
+type AttachPropDeclDst struct {
 	CommandTopics TopicMap
 	StateTopics   TopicMap
 	CmpDiscovery  ComponentDiscovery
+	Rewrite       map[Topic]RewriteEntry
 }
 
-// attachPropDecl uses PropDecl and supporting data to
+// AttachPropDecl uses PropDecl and supporting data to
 // populate the following:
 //
 //   - in-memory command topics
 //   - in-memory state topics
 //   - prepare component discovery
-func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
+//   - rewrite mapping
+func AttachPropDecl(dst AttachPropDeclDst, args AttachPropDeclArgs) error {
 	attr := args.Decl.Attr()
 	decl := args.Decl
 	prop := args.Spec
-	componentTopic := args.ComponentTopic
+	propTopic := args.Rewrite.ComponentTopic.Property(decl)
+	targetPropPrefix := decl.Rewrite.Target
 
 	var discovAttrs map[string]any
 	var vm wire.ValueMap
 
 	// default to identity map
 	vm = &wire.IdentityValueMap{}
+
+	if targetPropPrefix != "" {
+		srcTopic := propTopic.Command(true)
+		targetTopic := args.Rewrite.ComponentTopic.Prefix(targetPropPrefix)
+		rwe := RewriteEntry{
+			FromPayload: decl.Rewrite.Match,
+			ToTopic:     targetTopic,
+			ToPayload:   decl.Rewrite.Content,
+		}
+		dst.Rewrite[srcTopic] = rwe
+	}
 
 	if decl.Expand != nil {
 		exp, err := decl.Expand(prop)
@@ -233,7 +270,6 @@ func attachPropDecl(dst attachPropDeclDst, args attachPropDeclArgs) error {
 		dst.CmpDiscovery["payload_"+attr+"off"] = "false"
 	}
 
-	propTopic := componentTopic.Property(decl)
 	if prop.Read() {
 		// state topic in discov: relative
 		dst.CmpDiscovery[attr+"state_topic"] = propTopic.State(false)

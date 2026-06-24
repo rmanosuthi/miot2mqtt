@@ -5,11 +5,15 @@ package ha
 // It is produced by chaining *Topic types'
 // transformation functions together, such as
 // [DeviceTopic.Component] and [ComponentTopic.Property].
+//
+// Only Topic is meant to be used as a key to MQTT topic-data maps.
+// Derive it from the *Topic types using relevant functions;
+// never do conversion with Topic().
 type Topic string
 
-// MQTT extracts the string of the Topic and
+// Unwrap extracts the string of the Topic and
 // must only be called by [MQTTHandle].
-func (t *Topic) MQTT() string {
+func (t *Topic) Unwrap() string {
 	return string(*t)
 }
 
@@ -64,14 +68,17 @@ func (ct ComponentTopic) AvailTopic() Topic {
 	return Topic(string(ct) + "/availability")
 }
 
+// Prefix produces a property topic given a
+// property prefix and a component topic.
+// Use with care.
+func (ct ComponentTopic) Prefix(pfx string) PropertyTopic {
+	return PropertyTopic{abs: string(ct) + "/" + pfx, rel: "~/" + pfx}
+}
+
 // Property produces a property topic given a
 // property declaration and a component topic.
 func (ct ComponentTopic) Property(decl *PropDecl) PropertyTopic {
-	if decl.Prefix == "" {
-		return PropertyTopic{abs: string(ct) + "/default", rel: "~/default"}
-	} else {
-		return PropertyTopic{abs: string(ct) + "/" + decl.Prefix, rel: "~/" + decl.Prefix}
-	}
+	return PropertyTopic{abs: string(ct) + "/" + decl.Prefix, rel: "~/" + decl.Prefix}
 }
 
 // PropertyTopic is a typed string encoding both

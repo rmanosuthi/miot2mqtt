@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/miot"
 	"github.com/rmanosuthi/miot2mqtt/wire"
-
-	paho "github.com/eclipse/paho.golang/paho"
 )
 
 var ErrDevEv = errors.New("incoming event")
@@ -23,7 +22,8 @@ var ErrDevEv = errors.New("incoming event")
 // The non-threadsafe [miot.Device] is wrapped
 // and external communication is done through
 // [Device.Post] to avoid concurrency issues.
-// Conversely, Device is a producer to [Device.Pool].
+// Conversely, Device is a producer to [Device.Pool]
+// which communicates with [DevicePool].
 //
 // A device makes its presence known to Home Assistant through a Discovery message.
 // This message enumerates a device's type and its properties.
@@ -35,24 +35,21 @@ var ErrDevEv = errors.New("incoming event")
 //
 // and is of the form [Discovery].
 //
-// Message routing is done through a Device
-// collecting all components' command topics,
-// forming a [DpMqConnInfo],
-// and sending it over to MQTT.
-//
 // A device's status is periodically updated over MQTT
 // when [time.Ticker] ticks, calling [Device.Report].
+//
+// See [MQTTHandle] for more MQTT related info.
 type Device struct {
 	ticker        *time.Ticker
 	components    []ComponentHandle
 	md            miot.Device
 	l             *slog.Logger
-	CommandTopics TopicMap
-	StateTopics   TopicMap
-	EnumTopics    DpMqConnInfo
-	// Recognized: DpDevReqDiscovery
-	mbox chan any
-	Pool chan<- any
+	rewrite       map[Topic]RewriteEntry
+	commandTopics TopicMap
+	stateTopics   TopicMap
+	enumTopics    DpMqConnInfo
+	mbox          chan any
+	pool          chan<- any
 }
 
 type DeviceArgs struct {
@@ -81,9 +78,10 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	var components []ComponentHandle
 	commandTopics := make(TopicMap)
 	stateTopics := make(TopicMap)
+	rewrite := make(map[Topic]RewriteEntry)
 
 	for _, cmp := range cmps {
-		ch, err := AttachComponent(cmp, md, deviceTopic)
+		ch, err := AttachComponent(rewrite, cmp, md, deviceTopic)
 		if err != nil {
 			if cmp.Mandatory {
 				return Device{}, fmt.Errorf("component attach: %w", err)
@@ -100,16 +98,9 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	mbox := make(chan any)
 
 	resp := DpMqConnInfo{
-		DID:       did,
-		RouteGlob: deviceTopic.Glob(),
-		SubTopics: commandTopics,
-		ForwardTo: func(pub *paho.Publish) {
-			select {
-			case mbox <- MqDevPublish{pub}:
-			default:
-				slog.Error("mq forwarder", "reason", ErrChFull)
-			}
-		},
+		DID:        did,
+		SubTopics:  commandTopics,
+		DeviceMbox: mbox,
 	}
 
 	l.Debug("command", "topics", commandTopics)
@@ -119,11 +110,12 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		components:    components,
 		md:            *md,
 		l:             l,
-		CommandTopics: commandTopics,
-		StateTopics:   stateTopics,
-		EnumTopics:    resp,
+		commandTopics: commandTopics,
+		stateTopics:   stateTopics,
+		enumTopics:    resp,
 		mbox:          mbox,
-		Pool:          args.Pool,
+		pool:          args.Pool,
+		rewrite:       rewrite,
 	}, nil
 }
 
@@ -152,7 +144,7 @@ func (dev *Device) Declare(ctx context.Context) ([]byte, error) {
 //  1. Handle remaining mailbox messages
 //  2. Update availability to offline
 //  3. Return
-func (dev Device) Subscribe(ctx context.Context) error {
+func (dev *Device) Subscribe(ctx context.Context) error {
 	l := dev.l
 	did := dev.md.DeviceID
 	l.Info("service is live")
@@ -161,7 +153,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 	for _, ch := range dev.components {
 		cmpsOnline[ch.AvailTopic] = []byte("online")
 	}
-	dev.Pool <- DevMqPost{
+	dev.pool <- DevMqPost{
 		DID:     did,
 		Payload: cmpsOnline,
 	}
@@ -174,7 +166,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 	if err != nil {
 		l.Error("failed to report", "reason", err)
 	} else {
-		dev.Pool <- report
+		dev.pool <- report
 	}
 
 	for run {
@@ -189,7 +181,7 @@ func (dev Device) Subscribe(ctx context.Context) error {
 				continue
 			}
 
-			dev.Pool <- report
+			dev.pool <- report
 		case <-ctx.Done():
 			run = false
 		case msg, ok := <-dev.mbox:
@@ -230,9 +222,35 @@ func (dev *Device) shutdown(ctx context.Context) error {
 	for _, cmp := range dev.components {
 		post.Payload[cmp.AvailTopic] = []byte("offline")
 	}
-	dev.Pool <- post
+	dev.pool <- post
 
 	l.Info("done")
+	return nil
+}
+
+func (dev *Device) RewritePublish(pub *MqDevPublish) error {
+	// Most messages don't need to be rewritten.
+	// Mutate pub in place to avoid pointless copies.
+	entry, ok := dev.rewrite[pub.Topic]
+	if !ok {
+		// Exit early if no such rewrite entry exists.
+		dev.l.Debug("no rewrite")
+		return nil
+	}
+
+	if !slices.Equal(pub.Payload, entry.FromPayload) {
+		// Topic match but payload mismatch.
+		// Not an error;
+		// example is rewrite fan speed == 0 to fan off
+		// which ignores fan speed != 0
+		dev.l.Debug("rewrite mismatch")
+		return nil
+	}
+
+	// Topic and payload match.
+	dev.l.Debug("rewrite", "src", pub.Topic, "dst", entry.ToTopic)
+	pub.Topic = entry.ToTopic.Command(true)
+	pub.Payload = entry.ToPayload
 	return nil
 }
 
@@ -243,16 +261,21 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 	switch msg := msg.(type) {
 	case MqDevPublish:
 		l.Debug("publish")
-		pub := msg
+		err := dev.RewritePublish(&msg)
+		if err != nil {
+			return err
+		}
+
 		ctxSet, cancelSet := context.WithTimeout(ctx, time.Second)
 		defer cancelSet()
-		post, err := dev.handleSetProp(ctxSet, pub.Topic, pub.Payload)
+
+		post, err := dev.handleSetProp(ctxSet, msg.Topic, msg.Payload)
 		if err != nil {
 			return errors.Join(ErrDevEv, err)
 		}
 
 		select {
-		case dev.Pool <- post:
+		case dev.pool <- post:
 			return nil
 		default:
 			return ErrChFull
@@ -276,7 +299,7 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 		}
 
 		select {
-		case dev.Pool <- post:
+		case dev.pool <- post:
 			return nil
 		default:
 			return ErrChFull
@@ -304,4 +327,27 @@ func UniqueID(did wire.DeviceID, platform string, canon string) string {
 	sb.WriteString(canon)
 
 	return sb.String()
+}
+
+// A RewriteEntry is associated with a command topic to
+// redirect a command to a different topic and
+// change the payload's content.
+//
+// The marshaled form is [PropRewrite].
+//
+// Example: HA can send either "fan off" to ~/command
+// or "fan speed 0" to ~/fan_speed/command, even when
+// fan speed range has been defined as non-zero.
+//
+// miot may not support "fan speed 0" and will return an error.
+// "fan speed 0" must then be rewritten to
+// "fan off" and sent to ~/command instead.
+//
+// Topic rewrites are done before value rewrite,
+// are restricted to a single component's scope,
+// and are done by [Device.RewritePublish].
+type RewriteEntry struct {
+	FromPayload []byte
+	ToTopic     PropertyTopic
+	ToPayload   []byte
 }

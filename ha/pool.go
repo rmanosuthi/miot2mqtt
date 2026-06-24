@@ -150,7 +150,7 @@ func (dp *DevicePool) Connected(msg MqDpConnected) {
 	reply := msg.ReplyTo
 	// enumerate and send
 	for _, dev := range dp.devs {
-		reply <- dev.EnumTopics
+		reply <- dev.enumTopics
 	}
 	close(reply)
 }
