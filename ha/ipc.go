@@ -73,7 +73,5 @@ type DpDevReqDiscovery MqDpReqDiscovery
 // DevMqPost is a generic message.
 type DevMqPost struct {
 	DID     wire.DeviceID
-	Payload PostMultiple
+	Payload map[Topic]json.RawMessage
 }
-
-type PostMultiple = map[Topic]json.RawMessage

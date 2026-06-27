@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rmanosuthi/miot2mqtt/miot"
+	"github.com/rmanosuthi/miot2mqtt/miot/prop"
 	"github.com/rmanosuthi/miot2mqtt/wire"
 )
 
@@ -24,6 +25,10 @@ var ErrDevEv = errors.New("incoming event")
 // [Device.Post] to avoid concurrency issues.
 // Conversely, Device is a producer to [Device.Pool]
 // which communicates with [DevicePool].
+//
+// Only one command is processed at a time.
+//
+// # Home Assistant integration
 //
 // A device makes its presence known to Home Assistant through a Discovery message.
 // This message enumerates a device's type and its properties.
@@ -39,6 +44,26 @@ var ErrDevEv = errors.New("incoming event")
 // when [time.Ticker] ticks, calling [Device.Report].
 //
 // See [MQTTHandle] for more MQTT related info.
+//
+// # State
+//
+// miot2mqtt generally does not keep track of the device's state.
+// The exception to this is power on/off, as
+// certain properties need the device to be on before
+// they can be changed.
+//
+// The result of periodic reporting by [Device.Report]
+// as mentioned earlier is not stored, with exception of
+// power on/off.
+//
+// A device must have at least one component with a [PropDecl]
+// which handles power state.
+// This is the property matched by URN name "on".
+//
+// When the device is marked as off and an
+// incoming command is received,
+// the device will first be turned on,
+// then the command will be processed.
 type Device struct {
 	ticker        *time.Ticker
 	components    []ComponentHandle
@@ -50,6 +75,9 @@ type Device struct {
 	enumTopics    DpMqConnInfo
 	mbox          chan any
 	pool          chan<- any
+
+	power      bool
+	powerTopic PropertyTopic
 }
 
 type DeviceArgs struct {
@@ -80,8 +108,17 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 	stateTopics := make(TopicMap)
 	rewrite := make(map[Topic]RewriteEntry)
 
+	cmpDst := AttachComponentDst{
+		Rewrite: rewrite,
+		// leave OnTopic empty
+	}
+
 	for _, cmp := range cmps {
-		ch, err := AttachComponent(rewrite, cmp, md, deviceTopic)
+		ch, err := AttachComponent(&cmpDst, AttachComponentArgs{
+			Template:    cmp,
+			MiotDevice:  md,
+			DeviceTopic: deviceTopic,
+		})
 		if err != nil {
 			if cmp.Mandatory {
 				return Device{}, fmt.Errorf("component attach: %w", err)
@@ -103,6 +140,10 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		DeviceMbox: mbox,
 	}
 
+	if !cmpDst.FoundOn {
+		return Device{}, errors.New("device has no power property")
+	}
+
 	l.Debug("command", "topics", commandTopics)
 	l.Debug("state", "topics", stateTopics)
 	return Device{
@@ -116,7 +157,37 @@ func NewDevice(ctx context.Context, args DeviceArgs) (Device, error) {
 		mbox:          mbox,
 		pool:          args.Pool,
 		rewrite:       rewrite,
+		powerTopic:    cmpDst.OnTopic,
 	}, nil
+}
+
+// SetPowerState sets the power state of the device to state.
+// A DevMqPost containing an MQTT topic and a boolean payload
+// is returned to be used for updating HA.
+func (dev *Device) SetPowerState(ctx context.Context, state bool) (DevMqPost, error) {
+	entry := dev.commandTopics[dev.powerTopic.Command(true)]
+	key := entry.PropKey
+	stateRaw, err := json.Marshal(state)
+	if err != nil {
+		return DevMqPost{}, err
+	}
+	sp, err := prop.NewSetProp(key, stateRaw, &wire.IdentityValueMap{})
+	if err != nil {
+		return DevMqPost{}, err
+	}
+
+	err = dev.md.SetProperty(ctx, key, &sp)
+	if err != nil {
+		return DevMqPost{}, err
+	} else {
+		dev.power = state
+		return DevMqPost{
+			DID: dev.md.DeviceID,
+			Payload: map[Topic]json.RawMessage{
+				dev.powerTopic.State(true): stateRaw,
+			},
+		}, nil
+	}
 }
 
 func (dev *Device) Post(msg any) error {
@@ -149,7 +220,7 @@ func (dev *Device) Subscribe(ctx context.Context) error {
 	did := dev.md.DeviceID
 	l.Info("service is live")
 	// make each component online
-	cmpsOnline := make(PostMultiple)
+	cmpsOnline := make(map[Topic]json.RawMessage)
 	for _, ch := range dev.components {
 		cmpsOnline[ch.AvailTopic] = []byte("online")
 	}
@@ -164,8 +235,13 @@ func (dev *Device) Subscribe(ctx context.Context) error {
 	defer cancelReport()
 	report, err := dev.Report(ctxReport)
 	if err != nil {
-		l.Error("failed to report", "reason", err)
+		l.Error("report", "reason", err)
 	} else {
+		err := json.Unmarshal(report.Payload[dev.powerTopic.State(true)], &dev.power)
+		if err != nil {
+			l.Error("get on state", "reason", err)
+		}
+
 		dev.pool <- report
 	}
 
@@ -177,8 +253,12 @@ func (dev *Device) Subscribe(ctx context.Context) error {
 			defer cancelReport()
 			report, err := dev.Report(ctxReport)
 			if err != nil {
-				l.Error("failed to report", "reason", err)
+				l.Error("report", "reason", err)
 				continue
+			}
+			err = json.Unmarshal(report.Payload[dev.powerTopic.State(true)], &dev.power)
+			if err != nil {
+				l.Error("get on state", "reason", err)
 			}
 
 			dev.pool <- report
@@ -217,7 +297,7 @@ func (dev *Device) shutdown(ctx context.Context) error {
 	l.Debug("update avail offline")
 	post := DevMqPost{
 		DID:     did,
-		Payload: make(PostMultiple),
+		Payload: make(map[Topic]json.RawMessage),
 	}
 	for _, cmp := range dev.components {
 		post.Payload[cmp.AvailTopic] = []byte("offline")
@@ -266,6 +346,19 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 			return err
 		}
 
+		// we may need to turn the device on first
+		if !dev.power && msg.Topic != dev.powerTopic.Command(true) {
+			l.Debug("powering on")
+			newPower, err := dev.SetPowerState(ctx, true)
+			if err != nil {
+				return err
+			}
+
+			// update status
+			dev.power = true
+			dev.pool <- newPower
+		}
+
 		ctxSet, cancelSet := context.WithTimeout(ctx, time.Second)
 		defer cancelSet()
 
@@ -293,7 +386,7 @@ func (dev *Device) handleMboxMsg(ctx context.Context, msg any) error {
 		discTopic := ResolveDiscovery(did)
 		post := DevMqPost{
 			DID: did,
-			Payload: PostMultiple{
+			Payload: map[Topic]json.RawMessage{
 				discTopic: decl,
 			},
 		}
