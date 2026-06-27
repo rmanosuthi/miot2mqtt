@@ -93,6 +93,22 @@ func (cmp *ComponentTemplate) Canon() string {
 	return canon
 }
 
+// AttachComponentArgs contains arguments to
+// [AttachComponent].
+type AttachComponentArgs struct {
+	Template    ComponentTemplate
+	MiotDevice  *miot.Device
+	DeviceTopic DeviceTopic
+}
+
+// AttachComponentDst gets mutated by
+// calls to [AttachComponent].
+type AttachComponentDst struct {
+	Rewrite map[Topic]RewriteEntry
+	FoundOn bool
+	OnTopic PropertyTopic
+}
+
 // AttachComponent returns a component handle given a
 // ComponentTemplate and a device.
 //
@@ -103,10 +119,13 @@ func (cmp *ComponentTemplate) Canon() string {
 // it needs the same stuff as everything else, but
 // it may not be needed.
 func AttachComponent(
-	rewrite map[Topic]RewriteEntry,
-	cmp ComponentTemplate,
-	dev *miot.Device, dt DeviceTopic,
+	dst *AttachComponentDst,
+	args AttachComponentArgs,
 ) (ComponentHandle, error) {
+	cmp := args.Template
+	dev := args.MiotDevice
+	dt := args.DeviceTopic
+
 	componentTopic := dt.Component(cmp)
 	platform := cmp.Platform
 	did := dev.DeviceID
@@ -124,11 +143,11 @@ func AttachComponent(
 	cmpDiscov["~"] = root
 	cmpDiscov["availability_topic"] = componentTopic.AvailRel()
 
-	dst := AttachPropDeclDst{
+	propDst := AttachPropDeclDst{
 		CommandTopics: commandTopics,
 		StateTopics:   stateTopics,
 		CmpDiscovery:  cmpDiscov,
-		Rewrite:       rewrite,
+		Rewrite:       dst.Rewrite,
 	}
 
 	svc, ok := dev.ServiceName(cmp.Service)
@@ -156,7 +175,7 @@ func AttachComponent(
 		}
 
 		// try to attach this PropDecl
-		err := AttachPropDecl(dst, AttachPropDeclArgs{
+		err := AttachPropDecl(&propDst, AttachPropDeclArgs{
 			Service: &svc,
 			Decl:    &decl,
 			Spec:    &pair.Spec,
@@ -173,6 +192,13 @@ func AttachComponent(
 				slog.Warn("attach property", "reason", err)
 				continue
 			}
+		}
+
+		// is this "on"?
+		if matchName == "on" {
+			onTopic := componentTopic.Property(&decl)
+			dst.OnTopic = onTopic
+			dst.FoundOn = true
 		}
 	}
 
@@ -223,7 +249,7 @@ type AttachPropDeclDst struct {
 //   - in-memory state topics
 //   - prepare component discovery
 //   - rewrite mapping
-func AttachPropDecl(dst AttachPropDeclDst, args AttachPropDeclArgs) error {
+func AttachPropDecl(dst *AttachPropDeclDst, args AttachPropDeclArgs) error {
 	attr := args.Decl.Attr()
 	decl := args.Decl
 	prop := args.Spec
